@@ -1,8 +1,3 @@
-import {
-  buildImagePrompt, describeProviderFailure, pickSize,
-  type ArtStyle, type GenerateError,
-} from '../src/lib/graphic/image-prompt'
-
 /**
  * Generates panel artwork on the server, because the image API key must never
  * reach the browser — anyone could read it out of the bundle and spend the
@@ -11,6 +6,11 @@ import {
  * Configure by setting OPENAI_API_KEY on the Vercel project. Without it the
  * endpoint reports `not_configured` and the app explains what to add, rather
  * than failing in a way that looks like a bug.
+ *
+ * This file is deliberately self-contained: Vercel compiles it to ESM without
+ * bundling, so an import reaching outside `api/` is not resolvable at runtime.
+ * `styleIds` below is checked against the app's style list by a unit test, so
+ * the two cannot drift apart.
  */
 
 /** Minimal shapes so the function needs no extra type dependency. */
@@ -21,6 +21,83 @@ interface Req {
 interface Res {
   status: (code: number) => Res
   json: (body: unknown) => void
+}
+
+export interface GenerateError {
+  code:
+    | 'not_configured' | 'empty_prompt' | 'rejected'
+    | 'rate_limited' | 'quota' | 'provider_error' | 'network'
+  message: string
+}
+
+/** How each art style is described to the image model. */
+export const STYLE_MODIFIERS: Record<string, string> = {
+  color: 'comic book panel art, bold clean ink outlines, flat cel shading, vivid colour',
+  ink: 'black and white comic panel, brush and ink line art, crosshatched shadows, high contrast, no colour',
+  noir: 'film noir comic panel, heavy black shadows, dramatic single light source, muted desaturated palette',
+  manga: 'manga panel, screentone shading, expressive linework, black and white',
+  watercolour: 'watercolour illustration, soft washes, visible paper texture, gentle palette',
+  retro: 'vintage 1960s comic panel, halftone dot shading, limited four-colour palette, slight print misregistration',
+}
+
+export const MAX_SUBJECT_LENGTH = 300
+
+export function cleanSubject(subject: string): string {
+  return subject.replace(/\s+/g, ' ').trim().slice(0, MAX_SUBJECT_LENGTH)
+}
+
+/**
+ * A bare noun like "fox" produces a stock photo from most models. Naming the
+ * medium and framing first is what makes the result usable as a comic panel.
+ */
+export function buildImagePrompt(subject: string, style: string): string {
+  const cleaned = cleanSubject(subject)
+  if (!cleaned) throw new Error('Describe what should be in the panel.')
+  const modifiers = STYLE_MODIFIERS[style] ?? STYLE_MODIFIERS.color
+  return `${cleaned}. ${modifiers}. Single illustration filling the frame, no panel borders, no speech bubbles, no lettering or text anywhere in the image.`
+}
+
+export const SUPPORTED_SIZES = ['1024x1024', '1024x1536', '1536x1024'] as const
+
+/**
+ * Pick whichever supported size is closest in shape to the panel, so the
+ * artwork is cropped as little as possible when it lands in the frame.
+ */
+export function pickSize(aspect: number): string {
+  if (!Number.isFinite(aspect) || aspect <= 0) return '1024x1024'
+  let best: string = SUPPORTED_SIZES[0]
+  let bestDistance = Infinity
+  for (const size of SUPPORTED_SIZES) {
+    const [w, h] = size.split('x').map(Number)
+    // Compare in log space so 2:1 and 1:2 are treated as equally far from 1:1.
+    const distance = Math.abs(Math.log(w / h) - Math.log(aspect))
+    if (distance < bestDistance) {
+      bestDistance = distance
+      best = size
+    }
+  }
+  return best
+}
+
+/** Turn a provider's HTTP failure into something worth showing a writer. */
+export function describeProviderFailure(status: number, body: string): GenerateError {
+  const lower = body.toLowerCase()
+  if (status === 401 || status === 403) {
+    return { code: 'not_configured', message: 'The image service rejected the API key. Check the key set on the deployment.' }
+  }
+  if (status === 429) {
+    if (lower.includes('quota') || lower.includes('billing') || lower.includes('insufficient')) {
+      return { code: 'quota', message: 'The image account is out of credit. Top it up to keep generating.' }
+    }
+    return { code: 'rate_limited', message: 'Too many images at once. Wait a moment and try again.' }
+  }
+  if (
+    lower.includes('safety') || lower.includes('content_policy') ||
+    lower.includes('content policy') || lower.includes('moderation')
+  ) {
+    return { code: 'rejected', message: 'The image service would not draw that. Try describing it differently.' }
+  }
+  return { code: 'provider_error', message: `The image service failed (${status}). Try again in a moment.` }
 }
 
 const PROVIDER_URL = 'https://api.openai.com/v1/images/generations'
@@ -59,7 +136,7 @@ export default async function handler(req: Req, res: Res): Promise<void> {
   }
 
   const subject = typeof payload.subject === 'string' ? payload.subject : ''
-  const style = (typeof payload.style === 'string' ? payload.style : 'color') as ArtStyle
+  const style = typeof payload.style === 'string' ? payload.style : 'color'
   const aspect = typeof payload.aspect === 'number' ? payload.aspect : 1
 
   let prompt: string
@@ -80,12 +157,7 @@ export default async function handler(req: Req, res: Res): Promise<void> {
         Authorization: `Bearer ${key}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        model: MODEL,
-        prompt,
-        n: 1,
-        size: pickSize(aspect),
-      }),
+      body: JSON.stringify({ model: MODEL, prompt, n: 1, size: pickSize(aspect) }),
       signal: abort.signal,
     })
 

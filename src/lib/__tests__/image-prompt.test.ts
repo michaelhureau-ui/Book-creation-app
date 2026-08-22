@@ -1,8 +1,25 @@
 import { describe, expect, it } from 'vitest'
 import {
-  buildImagePrompt, cleanSubject, describeProviderFailure, MAX_SUBJECT_LENGTH,
-  pickSize, STYLES, styleOf, SUPPORTED_SIZES,
-} from '@/lib/graphic/image-prompt'
+  buildImagePrompt, describeProviderFailure, MAX_SUBJECT_LENGTH as SERVER_MAX,
+  pickSize, STYLE_MODIFIERS, SUPPORTED_SIZES,
+} from '../../../api/generate-image'
+import { cleanSubject, MAX_SUBJECT_LENGTH, STYLES, styleOf } from '@/lib/graphic/image-prompt'
+
+describe('style list', () => {
+  it('offers every style the server knows, and no others', () => {
+    // The endpoint has to be self-contained to deploy, so its style table is a
+    // separate copy. This is what stops the two drifting apart.
+    expect(STYLES.map((s) => s.id).sort()).toEqual(Object.keys(STYLE_MODIFIERS).sort())
+  })
+
+  it('agrees with the server on how long a subject may be', () => {
+    expect(MAX_SUBJECT_LENGTH).toBe(SERVER_MAX)
+  })
+
+  it('falls back to the first style for an unknown one', () => {
+    expect(styleOf('nonsense' as never)).toBe(STYLES[0])
+  })
+})
 
 describe('cleanSubject', () => {
   it('collapses whitespace and trims', () => {
@@ -24,7 +41,7 @@ describe('buildImagePrompt', () => {
   })
 
   it('asks for no lettering, since balloons are added afterwards', () => {
-    const prompt = buildImagePrompt('a bus at night')
+    const prompt = buildImagePrompt('a bus at night', 'color')
     expect(prompt).toMatch(/no speech bubbles/i)
     expect(prompt).toMatch(/no lettering or text/i)
   })
@@ -34,20 +51,19 @@ describe('buildImagePrompt', () => {
     expect(buildImagePrompt('a fox', 'manga')).toContain('screentone')
   })
 
-  it('falls back to the first style for an unknown one', () => {
-    // A style id from an older saved book must not break generation.
-    expect(styleOf('nonsense' as never)).toBe(STYLES[0])
+  it('falls back to the default style rather than dropping the modifiers', () => {
+    expect(buildImagePrompt('a fox', 'nonsense')).toContain('comic book panel art')
   })
 
   it('refuses an empty subject rather than prompting for nothing', () => {
-    expect(() => buildImagePrompt('   ')).toThrow(/describe what/i)
+    expect(() => buildImagePrompt('   ', 'color')).toThrow(/describe what/i)
   })
 })
 
 describe('pickSize', () => {
   it('returns a supported size for any panel shape', () => {
     for (const aspect of [0.2, 0.5, 0.8, 1, 1.4, 2, 5]) {
-      expect(SUPPORTED_SIZES).toContain(pickSize(aspect))
+      expect(SUPPORTED_SIZES).toContain(pickSize(aspect) as never)
     }
   })
 
@@ -58,7 +74,6 @@ describe('pickSize', () => {
   })
 
   it('treats mirrored aspects symmetrically', () => {
-    // 2:1 and 1:2 are equally far from square, so neither should win by rounding.
     expect(pickSize(1.9)).toBe('1536x1024')
     expect(pickSize(1 / 1.9)).toBe('1024x1536')
   })
