@@ -5,6 +5,8 @@ import { useStore } from '@/lib/store'
 import { ACCEPTED_TYPES, importImage } from '@/lib/graphic/assets'
 import { BALLOON_LABELS } from '@/lib/graphic/pages'
 import { LAYOUTS } from '@/lib/graphic/layouts'
+import { DrawingBoard } from '@/components/graphic/DrawingBoard'
+import { panelAspect } from '@/components/graphic/geometry'
 import type { BalloonKind, Book, Page, Panel } from '@/types'
 
 const BALLOON_KINDS: BalloonKind[] = ['speech', 'thought', 'caption', 'shout', 'sfx']
@@ -39,19 +41,22 @@ function Slider({
   )
 }
 
-function ArtworkSection({ book, page, panel }: { book: Book; page: Page; panel: Panel }) {
+function ArtworkSection({ book, page, panel, panelIndex }: { book: Book; page: Page; panel: Panel; panelIndex: number }) {
   const updatePanel = useStore((s) => s.updatePanel)
+  const setPanelArt = useStore((s) => s.setPanelArt)
   const clearPanelArt = useStore((s) => s.clearPanelArt)
   const fileInput = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [drawing, setDrawing] = useState(false)
 
   const place = async (file: File): Promise<void> => {
     setBusy(true)
     setError(null)
     try {
       const asset = await importImage(book.id, file)
-      updatePanel(book.id, page.id, panel.id, { assetId: asset.id, zoom: 1, offsetX: 0, offsetY: 0 })
+      // setPanelArt rather than updatePanel: it collects the image being replaced.
+      setPanelArt(book.id, page.id, panel.id, asset.id)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'That image could not be placed.')
     } finally {
@@ -75,20 +80,32 @@ function ArtworkSection({ book, page, panel }: { book: Book; page: Page; panel: 
         }}
       />
 
-      <div className="flex gap-1.5">
-        <button className="btn btn-outline flex-1 text-xs" disabled={busy} onClick={() => fileInput.current?.click()}>
-          <Icons.Upload className="h-3.5 w-3.5" />
-          {busy ? 'Placing…' : panel.assetId ? 'Replace' : 'Place image'}
+      {/* Drawing is the primary action, so it gets its own full-width row —
+          three buttons abreast in this sidebar wrap and read as cramped. */}
+      <div className="space-y-1.5">
+        <button className="btn btn-primary w-full whitespace-nowrap text-xs" onClick={() => setDrawing(true)}>
+          <Icons.Brush className="h-3.5 w-3.5" /> {panel.assetId ? 'Edit drawing' : 'Draw this panel'}
         </button>
-        {panel.assetId && (
+        <div className="flex gap-1.5">
           <button
-            className="btn btn-danger text-xs"
-            title="Remove artwork"
-            onClick={() => clearPanelArt(book.id, page.id, panel.id)}
+            className="btn btn-outline flex-1 whitespace-nowrap text-xs"
+            disabled={busy}
+            onClick={() => fileInput.current?.click()}
           >
-            <Icons.Trash className="h-3.5 w-3.5" />
+            <Icons.Upload className="h-3.5 w-3.5" />
+            {busy ? 'Placing…' : panel.assetId ? 'Replace with a file' : 'Use an image'}
           </button>
-        )}
+          {panel.assetId && (
+            <button
+              className="btn btn-danger shrink-0 text-xs"
+              title="Remove artwork"
+              aria-label="Remove artwork"
+              onClick={() => clearPanelArt(book.id, page.id, panel.id)}
+            >
+              <Icons.Trash className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
       </div>
 
       {error && (
@@ -121,8 +138,19 @@ function ArtworkSection({ book, page, panel }: { book: Book; page: Page; panel: 
         </div>
       ) : (
         <p className="text-xs text-ink-faint">
-          Drop in a drawing, a photo, or a scan. It is stored in this browser and cropped to fit the panel.
+          Draw the panel here, or bring in a photo or scan. Either way it is stored in this
+          browser and cropped to fit the panel.
         </p>
+      )}
+
+      {drawing && (
+        <DrawingBoard
+          book={book}
+          page={page}
+          panel={panel}
+          aspect={panelAspect(page, panelIndex, 'comic')}
+          onClose={() => setDrawing(false)}
+        />
       )}
     </section>
   )
@@ -253,7 +281,7 @@ export function PanelInspector({ book, page }: { book: Book; page: Page }) {
       {panel ? (
         <div className="space-y-5 p-4">
           <p className="text-sm font-semibold text-ink">Panel {panelIndex + 1}</p>
-          <ArtworkSection book={book} page={page} panel={panel} />
+          <ArtworkSection book={book} page={page} panel={panel} panelIndex={panelIndex} />
           <LetteringSection book={book} page={page} panel={panel} />
         </div>
       ) : (

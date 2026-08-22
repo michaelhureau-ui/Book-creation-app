@@ -5,6 +5,7 @@ import { sourceRect } from '@/lib/graphic/render'
 import { bookFromJson } from '@/lib/export'
 import { bookStats } from '@/lib/stats'
 import { createBook } from '@/lib/book'
+import { panelAspect, panelRects } from '@/components/graphic/geometry'
 import type { Page } from '@/types'
 
 describe('layouts', () => {
@@ -185,5 +186,37 @@ describe('importing a graphic novel backup', () => {
     expect(restored.kind).toBe('prose')
     expect(restored.pages).toEqual([])
     expect(restored.chapters).toHaveLength(1)
+  })
+})
+
+describe('panelAspect', () => {
+  it('reports a splash panel as roughly the page shape', () => {
+    const page = createPage('splash')
+    // The live area is inset by equal margins, so it keeps the trim's proportions.
+    expect(panelAspect(page, 0, 'comic')).toBeCloseTo(6.625 / 10.25, 1)
+  })
+
+  it('makes a three-column panel far taller than it is wide', () => {
+    const page = createPage('three-columns')
+    expect(panelAspect(page, 0, 'comic')).toBeLessThan(0.4)
+  })
+
+  it('makes a two-row panel wider than it is tall on a comic page', () => {
+    const page = createPage('two-rows')
+    expect(panelAspect(page, 0, 'comic')).toBeGreaterThan(1)
+  })
+
+  it('falls back to a square for a panel index the layout does not have', () => {
+    expect(panelAspect(createPage('splash'), 9, 'comic')).toBe(1)
+  })
+
+  it('agrees with the panel rectangles it is derived from', () => {
+    const page = createPage('four-grid')
+    const rects = panelRects(page, 'comic')
+    const pageAspect = 6.625 / 10.25
+    for (let i = 0; i < rects.length; i++) {
+      const expected = (rects[i].width * pageAspect) / rects[i].height
+      expect(panelAspect(page, i, 'comic')).toBeCloseTo(expected, 6)
+    }
   })
 })

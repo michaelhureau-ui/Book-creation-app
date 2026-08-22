@@ -52,8 +52,14 @@ four or six up, and a hero panel over or under a pair. Changing a page's layout
 keeps the artwork already placed; only panels the new layout has no room for are
 dropped, along with their images.
 
-**Fill the panels.** Click a panel and place a drawing, photo, or scan. Images
-are downscaled on import (a phone photo is far larger than a panel needs) and
+**Draw the panels.** Every panel opens a drawing board: brush, straight line,
+flood fill, and eraser, with a palette plus a custom colour, six brush sizes,
+undo/redo (`⌘Z` / `⇧⌘Z`), and clear. The sheet is shaped to the panel it belongs
+to, so a drawing lands in its frame uncropped, and reopening loads what is
+already there — so you can pick a drawing back up, or ink over a photo.
+
+**Or bring in a picture.** A panel takes a photo or scan instead. Images are
+downscaled on import (a phone photo is far larger than a panel needs) and
 cover-fitted to the frame, with zoom and pan to choose the crop.
 
 **Letter it.** Five kinds of balloon — speech, thought, caption, shout, and
@@ -70,8 +76,10 @@ collaborator expects. Trim sizes: 6.625 × 10.25 in, A4, or square; 150, 200, or
 300 dpi.
 
 Artwork is held in its own IndexedDB store rather than on the book record, so
-autosaving a page never rewrites megabytes of images. A graphic novel's JSON
-backup embeds its artwork as base64, so the file is portable on its own.
+autosaving a page never rewrites megabytes of images. Replacing or removing a
+panel's artwork collects the image nothing references any more. A graphic
+novel's JSON backup embeds its artwork as base64, so the file is portable on its
+own.
 
 ## How it fits together
 
@@ -84,10 +92,10 @@ src/
 │   ├── store.ts         Zustand state + debounced autosave
 │   ├── stats.ts         word counts, reading time, panel counts
 │   ├── cover.ts         jacket palettes and layouts
-│   ├── graphic/         layouts · pages · assets · the page renderer
+│   ├── graphic/         layouts · pages · assets · drawing · the page renderer
 │   └── export/          markdown · docx · epub · pdf · comic (+ shared options)
 └── components/
-    ├── graphic/         PageCanvas, PageList, PanelInspector
+    ├── graphic/         PageCanvas, PageList, PanelInspector, DrawingBoard
     └── ...              Library, Workspace, Editor, ChapterList, Preview, dialogs
 ```
 
@@ -127,4 +135,5 @@ npm run build
 
 The unit tests cover the parts worth pinning down — the HTML parser, chapter
 numbering, word counts, Markdown generation, backup import validation, panel
-layout geometry, and the artwork crop maths.
+layout geometry, the artwork crop maths, and the drawing board's flood fill and
+colour parsing.

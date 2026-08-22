@@ -26,3 +26,16 @@ export function aspectRatio(trim: TrimId): number {
   const t = trimOf(trim)
   return t.width / t.height
 }
+
+/**
+ * Width ÷ height of one panel box. The drawing board matches this so a drawing
+ * lands in its frame uncropped.
+ */
+export function panelAspect(page: Page, index: number, trim: TrimId): number {
+  const rects = panelRects(page, trim)
+  const rect = rects[index]
+  if (!rect || rect.height === 0) return 1
+  const pageAspect = aspectRatio(trim)
+  // Percentages are of different page dimensions, so convert through the page.
+  return (rect.width * pageAspect) / rect.height
+}

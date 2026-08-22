@@ -50,6 +50,7 @@ interface State {
   movePage: (bookId: string, from: number, to: number) => void
 
   updatePanel: (bookId: string, pageId: string, panelId: string, patch: Partial<Omit<Panel, 'id' | 'balloons'>>) => void
+  setPanelArt: (bookId: string, pageId: string, panelId: string, assetId: string) => void
   clearPanelArt: (bookId: string, pageId: string, panelId: string) => void
 
   addBalloon: (bookId: string, pageId: string, panelId: string, kind: BalloonKind) => void
@@ -283,6 +284,28 @@ export const useStore = create<State>((set, get) => {
             panels: p.panels.map((panel) => (panel.id === panelId ? { ...panel, ...patch } : panel)),
           }),
       })),
+
+    /**
+     * Swapping artwork must collect the image being replaced, otherwise every
+     * redraw leaves another orphaned asset behind in storage.
+     */
+    setPanelArt: (bookId, pageId, panelId, assetId) => {
+      const book = get().books.find((b) => b.id === bookId)
+      const previous = book?.pages.find((p) => p.id === pageId)?.panels.find((panel) => panel.id === panelId)?.assetId
+      patchBook(bookId, (b) => ({
+        ...b,
+        pages: b.pages.map((p) =>
+          p.id !== pageId ? p : {
+            ...p,
+            panels: p.panels.map((panel) =>
+              panel.id === panelId ? { ...panel, assetId, zoom: 1, offsetX: 0, offsetY: 0 } : panel),
+          }),
+      }))
+      if (previous && previous !== assetId) {
+        const pages = get().books.find((b) => b.id === bookId)?.pages ?? []
+        for (const id of orphanedAssets(pages, [previous])) void removeAsset(id)
+      }
+    },
 
     clearPanelArt: (bookId, pageId, panelId) => {
       const book = get().books.find((b) => b.id === bookId)

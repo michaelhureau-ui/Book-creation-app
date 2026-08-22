@@ -126,6 +126,23 @@ export async function loadImages(ids: string[]): Promise<Map<string, HTMLImageEl
 }
 
 /**
+ * Store a drawing made in the app. It already has the right dimensions and is
+ * a PNG, so it skips the downscale and re-encode that an imported file needs.
+ */
+export async function saveDrawing(
+  bookId: string,
+  blob: Blob,
+  width: number,
+  height: number,
+): Promise<ImportedAsset> {
+  const asset: StoredAsset = {
+    id: newId(), bookId, blob, type: 'image/png', width, height, createdAt: Date.now(),
+  }
+  await saveAsset(asset)
+  return { id: asset.id, width, height, bytes: blob.size }
+}
+
+/**
  * Copy every asset of one book to another, returning old id → new id. Artwork
  * is owned by exactly one book so that deleting a book can clean up after
  * itself without stranding another book's panels.

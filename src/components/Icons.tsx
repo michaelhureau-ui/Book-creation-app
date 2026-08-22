@@ -51,5 +51,9 @@ export const Icons = {
   Panels: svg(<><rect x="3" y="3" width="8" height="8" rx="1" /><rect x="13" y="3" width="8" height="8" rx="1" /><rect x="3" y="13" width="18" height="8" rx="1" /></>),
   Balloon: svg(<><path d="M20 12a7 7 0 0 1-7 7H9l-4 3v-4.2A7 7 0 0 1 4 12a7 7 0 0 1 7-7h2a7 7 0 0 1 7 7z" /></>),
   Image: svg(<><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="8.5" cy="9.5" r="1.5" /><path d="m4 17 5-5 4 4 3-2 4 4" /></>),
+  Brush: svg(<><path d="M14 4.5 19.5 10 10 19.5H4.5V14z" /><path d="M12.5 6.5 17.5 11.5" /></>),
+  Eraser: svg(<><path d="M8 20H5l-1.5-1.5a2 2 0 0 1 0-2.8L14 5.2a2 2 0 0 1 2.8 0l3 3a2 2 0 0 1 0 2.8L11.5 20z" /><path d="m9 10 5 5" /></>),
+  Line: svg(<><path d="M5 19 19 5" /><circle cx="19" cy="5" r="1.6" /><circle cx="5" cy="19" r="1.6" /></>),
+  Bucket: svg(<><path d="M11 3 4.5 9.5a2 2 0 0 0 0 2.8l4.2 4.2a2 2 0 0 0 2.8 0L18 10z" /><path d="M8 6.5 13.5 12" /><path d="M20 14c0 1.5-1 2.5-1 2.5S18 15.5 18 14a1 1 0 0 1 2 0z" /></>),
   Sparkle: svg(<><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z" /></>),
 }
