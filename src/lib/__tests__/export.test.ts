@@ -56,9 +56,9 @@ describe('buildMarkdown', () => {
 })
 
 describe('JSON backup', () => {
-  it('round-trips a book', () => {
+  it('round-trips a book', async () => {
     const original = sample()
-    const restored = bookFromJson(bookToJson(original))
+    const restored = bookFromJson(await bookToJson(original))
     expect(restored.title).toBe(original.title)
     expect(restored.subtitle).toBe(original.subtitle)
     expect(restored.chapters).toHaveLength(2)

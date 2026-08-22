@@ -1,10 +1,13 @@
-import { Fragment, useMemo } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { Modal } from '@/components/ui'
 import { BookCover } from '@/components/BookCover'
 import { parseBlocks, type Block, type Run } from '@/lib/blocks'
 import { bookAuthor, bookTitle, chapterNumbers } from '@/lib/book'
 import { bookStats, formatCount, readingSummary } from '@/lib/stats'
-import type { Book } from '@/types'
+import type { Book, Page } from '@/types'
+import { assetIdsOf, drawPage, pageGeometry, type TrimId } from '@/lib/graphic/render'
+import { loadImages } from '@/lib/graphic/assets'
+import { aspectRatio } from '@/components/graphic/geometry'
 
 /**
  * Rendered from the parsed block model rather than the stored HTML: an
@@ -53,7 +56,42 @@ function BlockView({ block }: { block: Block }) {
   }
 }
 
-export function Preview({ book, onClose }: { book: Book; onClose: () => void }) {
+/**
+ * Comic pages preview through the very renderer that writes the PDF and CBZ,
+ * so the preview is not an approximation of the export — it is the export.
+ */
+function ComicPage({ page, trim }: { page: Page; trim: TrimId }) {
+  const ref = useRef<HTMLCanvasElement>(null)
+  const [images, setImages] = useState<Map<string, HTMLImageElement>>(new Map())
+  const ids = assetIdsOf([page]).join(',')
+
+  useEffect(() => {
+    let live = true
+    void loadImages(ids ? ids.split(',') : []).then((loaded) => { if (live) setImages(loaded) })
+    return () => { live = false }
+  }, [ids])
+
+  useEffect(() => {
+    const canvas = ref.current
+    const ctx = canvas?.getContext('2d')
+    if (!canvas || !ctx) return
+    // Match the backing store to the renderer's coordinate space.
+    const geo = pageGeometry({ trim, dpi: 150 })
+    canvas.width = geo.width
+    canvas.height = geo.height
+    drawPage(ctx, page, images, { trim, dpi: 150 })
+  }, [page, images, trim])
+
+  return (
+    <canvas
+      ref={ref}
+      className="mx-auto mb-6 block w-full max-w-[34rem] rounded-sm bg-white shadow-card"
+      style={{ aspectRatio: String(aspectRatio(trim)) }}
+    />
+  )
+}
+
+export function Preview({ book, trim = 'comic', onClose }: { book: Book; trim?: TrimId; onClose: () => void }) {
   const numbers = useMemo(() => chapterNumbers(book.chapters), [book.chapters])
   const parsed = useMemo(
     () => book.chapters.map((c) => ({ chapter: c, blocks: parseBlocks(c.content) })),
@@ -64,7 +102,9 @@ export function Preview({ book, onClose }: { book: Book; onClose: () => void }) 
   return (
     <Modal
       title="Preview"
-      subtitle={`${formatCount(stats.words)} words · ${readingSummary(stats.readingMinutes)}`}
+      subtitle={book.kind === 'graphic'
+        ? `${stats.pages} ${stats.pages === 1 ? 'page' : 'pages'} · ${stats.artworkPlaced}/${stats.panels} panels drawn`
+        : `${formatCount(stats.words)} words · ${readingSummary(stats.readingMinutes)}`}
       wide
       onClose={onClose}
       footer={<button className="btn btn-outline" onClick={onClose}>Close preview</button>}
@@ -85,7 +125,7 @@ export function Preview({ book, onClose }: { book: Book; onClose: () => void }) 
         </section>
 
         {/* Contents */}
-        {book.chapters.length > 0 && (
+        {book.kind === 'prose' && book.chapters.length > 0 && (
           <section className="mx-auto mb-12 max-w-[34rem] rounded-lg bg-paper-raised px-8 py-10 shadow-card">
             <h2 className="mb-5 text-center font-serif text-xl font-semibold text-ink">Contents</h2>
             <ol className="space-y-1.5">
@@ -103,7 +143,16 @@ export function Preview({ book, onClose }: { book: Book; onClose: () => void }) 
         )}
 
         {/* Body */}
-        {parsed.map(({ chapter, blocks }) => (
+        {book.kind === 'graphic' && book.pages.map((page, i) => (
+          <div key={page.id}>
+            <p className="mb-1.5 text-center text-xs uppercase tracking-[0.18em] text-ink-faint">
+              Page {i + 1}{page.title ? ` — ${page.title}` : ''}
+            </p>
+            <ComicPage page={page} trim={trim} />
+          </div>
+        ))}
+
+        {book.kind === 'prose' && parsed.map(({ chapter, blocks }) => (
           <section key={chapter.id} className="mx-auto mb-8 max-w-[34rem] rounded-lg bg-paper-raised px-8 py-12 shadow-card">
             {numbers.get(chapter.id) && (
               <p className="text-center text-xs uppercase tracking-[0.2em] text-ink-faint">
@@ -121,8 +170,11 @@ export function Preview({ book, onClose }: { book: Book; onClose: () => void }) 
           </section>
         ))}
 
-        {book.chapters.length === 0 && (
+        {book.kind === 'prose' && book.chapters.length === 0 && (
           <p className="py-10 text-center text-sm text-ink-faint">Add a chapter to see it here.</p>
+        )}
+        {book.kind === 'graphic' && book.pages.length === 0 && (
+          <p className="py-10 text-center text-sm text-ink-faint">Add a page to see it here.</p>
         )}
       </div>
     </Modal>

@@ -6,7 +6,9 @@ import { ChapterList } from '@/components/ChapterList'
 import { DetailsPanel } from '@/components/DetailsPanel'
 import { Preview } from '@/components/Preview'
 import { ExportDialog } from '@/components/ExportDialog'
+import { GraphicWorkspace } from '@/components/graphic/GraphicWorkspace'
 import { EmptyState } from '@/components/ui'
+import type { TrimId } from '@/lib/graphic/render'
 import { useOpenBook, useOpenChapter, useStore } from '@/lib/store'
 import { chapterNumbers } from '@/lib/book'
 import { bookStats, chapterWords, formatCount } from '@/lib/stats'
@@ -39,6 +41,9 @@ export function Workspace() {
   const addChapter = useStore((s) => s.addChapter)
 
   const [panel, setPanel] = useState<'details' | 'preview' | 'export' | null>(null)
+  // The comic page size is a view/export setting rather than part of the book,
+  // so it lives here and is handed to both the editor and the export dialog.
+  const [trim, setTrim] = useState<TrimId>('comic')
 
   // ⌘/Ctrl+P previews, ⌘/Ctrl+E exports — both common enough while drafting to
   // be worth a shortcut, and both otherwise buried behind the header buttons.
@@ -76,7 +81,9 @@ export function Workspace() {
           </button>
           <p className="truncate text-xs text-ink-faint">
             {book.author.trim() || 'No author set'}
-            {stats && ` · ${formatCount(stats.words)} words`}
+            {stats && (book.kind === 'graphic'
+              ? ` · ${stats.pages} ${stats.pages === 1 ? 'page' : 'pages'} · ${stats.artworkPlaced}/${stats.panels} panels drawn`
+              : ` · ${formatCount(stats.words)} words`)}
           </p>
         </div>
 
@@ -95,6 +102,9 @@ export function Workspace() {
         </div>
       </header>
 
+      {book.kind === 'graphic' ? (
+        <GraphicWorkspace book={book} trim={trim} onTrimChange={setTrim} />
+      ) : (
       <div className="flex min-h-0 flex-1">
         <aside className="hidden w-60 shrink-0 border-r border-rule bg-paper-raised/60 sm:block">
           <ChapterList book={book} />
@@ -138,10 +148,11 @@ export function Workspace() {
           )}
         </main>
       </div>
+      )}
 
       {panel === 'details' && <DetailsPanel book={book} onClose={() => setPanel(null)} />}
-      {panel === 'preview' && <Preview book={book} onClose={() => setPanel(null)} />}
-      {panel === 'export' && <ExportDialog book={book} onClose={() => setPanel(null)} />}
+      {panel === 'preview' && <Preview book={book} trim={trim} onClose={() => setPanel(null)} />}
+      {panel === 'export' && <ExportDialog book={book} trim={trim} onClose={() => setPanel(null)} />}
     </div>
   )
 }

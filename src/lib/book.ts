@@ -1,4 +1,4 @@
-import type { Book, Chapter, ChapterKind } from '@/types'
+import type { Book, BookKind, Chapter, ChapterKind } from '@/types'
 
 export function newId(): string {
   return (
@@ -12,17 +12,19 @@ export function createChapter(kind: ChapterKind = 'chapter', title = 'Untitled c
   return { id: newId(), kind, title, content: '', createdAt: now, updatedAt: now }
 }
 
-export function createBook(title = 'Untitled book', author = ''): Book {
+export function createBook(title = 'Untitled book', author = '', kind: BookKind = 'prose'): Book {
   const now = Date.now()
   return {
     id: newId(),
+    kind,
     title,
     subtitle: '',
     author,
     description: '',
     language: 'en',
-    cover: { palette: 'sepia', layout: 'classic' },
-    chapters: [createChapter('chapter', 'Chapter One')],
+    cover: { palette: kind === 'graphic' ? 'ember' : 'sepia', layout: 'classic' },
+    chapters: kind === 'prose' ? [createChapter('chapter', 'Chapter One')] : [],
+    pages: [],
     createdAt: now,
     updatedAt: now,
   }
@@ -36,6 +38,17 @@ export function duplicateBook(book: Book): Book {
     id: newId(),
     title: `${book.title} (copy)`,
     chapters: book.chapters.map((c) => ({ ...c, id: newId() })),
+    // Asset ids are remapped afterwards by the caller, which copies the
+    // artwork rows: sharing them would let deleting one book strip the other.
+    pages: book.pages.map((p) => ({
+      ...p,
+      id: newId(),
+      panels: p.panels.map((panel) => ({
+        ...panel,
+        id: newId(),
+        balloons: panel.balloons.map((b) => ({ ...b, id: newId() })),
+      })),
+    })),
     createdAt: now,
     updatedAt: now,
   }

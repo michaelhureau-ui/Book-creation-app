@@ -1,11 +1,12 @@
 import { useMemo, useRef, useState } from 'react'
+import clsx from 'clsx'
 import { Icons } from '@/components/Icons'
 import { BookCover } from '@/components/BookCover'
 import { ConfirmDialog, EmptyState, Modal } from '@/components/ui'
 import { useStore } from '@/lib/store'
 import { bookStats, formatCount, readingSummary } from '@/lib/stats'
-import { bookFromJson } from '@/lib/export'
-import type { Book } from '@/types'
+import { bookFromJson, restoreAssets } from '@/lib/export'
+import type { Book, BookKind } from '@/types'
 
 function relativeDate(ts: number): string {
   const days = Math.floor((Date.now() - ts) / 86_400_000)
@@ -15,14 +16,20 @@ function relativeDate(ts: number): string {
   return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+const KINDS: { id: BookKind; name: string; hint: string; icon: (p: { className?: string }) => JSX.Element }[] = [
+  { id: 'prose', name: 'Novel', hint: 'Chapters of written text.', icon: Icons.Book },
+  { id: 'graphic', name: 'Graphic novel', hint: 'Pages of panels, artwork, and lettering.', icon: Icons.Panels },
+]
+
 function NewBookDialog({ onClose }: { onClose: () => void }) {
   const addBook = useStore((s) => s.addBook)
   const openBook = useStore((s) => s.openBook)
   const [title, setTitle] = useState('')
   const [author, setAuthor] = useState('')
+  const [kind, setKind] = useState<BookKind>('prose')
 
   const create = async (): Promise<void> => {
-    const id = await addBook(title, author)
+    const id = await addBook(title, author, kind)
     openBook(id)
     onClose()
   }
@@ -43,6 +50,30 @@ function NewBookDialog({ onClose }: { onClose: () => void }) {
         className="space-y-4"
         onSubmit={(e) => { e.preventDefault(); void create() }}
       >
+        <div>
+          <span className="label">What are you making?</span>
+          <div className="grid grid-cols-2 gap-2">
+            {KINDS.map((option) => {
+              const Icon = option.icon
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  aria-pressed={kind === option.id}
+                  className={clsx(
+                    'rounded-lg border px-3 py-3 text-left transition-colors',
+                    kind === option.id ? 'border-accent bg-accent-soft/50' : 'border-rule hover:bg-paper-sunk',
+                  )}
+                  onClick={() => setKind(option.id)}
+                >
+                  <Icon className="mb-1.5 h-5 w-5 text-accent-deep" />
+                  <span className="block text-sm font-medium text-ink">{option.name}</span>
+                  <span className="block text-xs text-ink-faint">{option.hint}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
         <label className="block">
           <span className="label">Title</span>
           <input autoFocus className="field" value={title} placeholder="Untitled book" onChange={(e) => setTitle(e.target.value)} />
@@ -75,9 +106,18 @@ function BookCard({ book, onDelete }: { book: Book; onDelete: () => void }) {
           className="transition-transform duration-200 group-hover:-translate-y-1 group-focus-visible:-translate-y-1"
         />
         <div className="mt-3">
-          <h3 className="truncate text-sm font-semibold text-ink">{book.title || 'Untitled book'}</h3>
+          <h3 className="truncate text-sm font-semibold text-ink">
+            {book.kind === 'graphic' && (
+              <span className="mr-1.5 inline-flex items-center rounded bg-accent-soft px-1.5 py-0.5 align-middle text-[0.6rem] font-semibold uppercase tracking-wide text-accent-deep">
+                Graphic
+              </span>
+            )}
+            {book.title || 'Untitled book'}
+          </h3>
           <p className="mt-0.5 text-xs text-ink-faint">
-            {formatCount(stats.words)} words · {stats.chapters} {stats.chapters === 1 ? 'chapter' : 'chapters'}
+            {book.kind === 'graphic'
+              ? `${stats.pages} ${stats.pages === 1 ? 'page' : 'pages'} · ${stats.artworkPlaced}/${stats.panels} drawn`
+              : `${formatCount(stats.words)} words · ${stats.chapters} ${stats.chapters === 1 ? 'chapter' : 'chapters'}`}
           </p>
           <p className="text-xs text-ink-faint">Edited {relativeDate(book.updatedAt)}</p>
         </div>
@@ -127,11 +167,29 @@ export function Library() {
       b.subtitle.toLowerCase().includes(q))
   }, [books, query])
 
-  const totalWords = useMemo(() => books.reduce((sum, b) => sum + bookStats(b).words, 0), [books])
+  /**
+   * The shelf summary only mentions what is actually there: word counts and
+   * reading time are meaningless for a shelf of graphic novels, and a page
+   * count is meaningless for prose.
+   */
+  const summary = useMemo(() => {
+    const all = books.map(bookStats)
+    const words = all.reduce((sum, s) => sum + s.words, 0)
+    const pages = all.reduce((sum, s) => sum + s.pages, 0)
+    const parts = [`${books.length} ${books.length === 1 ? 'book' : 'books'}`]
+    if (pages > 0) parts.push(`${pages} ${pages === 1 ? 'page' : 'pages'} drawn`)
+    if (words > 0) parts.push(`${formatCount(words)} words`, readingSummary(Math.round(words / 230)))
+    return parts.join(' · ')
+  }, [books])
 
   const onImport = async (file: File): Promise<void> => {
     try {
-      await importBook(bookFromJson(await file.text()))
+      const text = await file.text()
+      const book = bookFromJson(text)
+      const id = await importBook(book)
+      // Artwork is keyed to the new book id, so it is restored after the book
+      // itself has been given one.
+      if (book.kind === 'graphic' && id) await restoreAssets(text, id)
       setImportError(null)
     } catch (err) {
       setImportError(err instanceof Error ? err.message : 'That file could not be imported.')
@@ -146,7 +204,7 @@ export function Library() {
           <p className="mt-1 text-sm text-ink-faint">
             {books.length === 0
               ? 'Everything you write is saved in this browser.'
-              : `${books.length} ${books.length === 1 ? 'book' : 'books'} · ${formatCount(totalWords)} words · ${readingSummary(Math.round(totalWords / 230))}`}
+              : summary}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

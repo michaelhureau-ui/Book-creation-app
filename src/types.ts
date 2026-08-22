@@ -19,8 +19,50 @@ export interface Cover {
   layout: CoverLayout
 }
 
+/** A book is either prose (chapters of text) or a graphic novel (drawn pages). */
+export type BookKind = 'prose' | 'graphic'
+
+export type BalloonKind = 'speech' | 'thought' | 'caption' | 'shout' | 'sfx'
+
+export interface Balloon {
+  id: string
+  kind: BalloonKind
+  text: string
+  /** Position and width as a fraction (0–1) of the panel it sits in. */
+  x: number
+  y: number
+  width: number
+  /** Where the tail points, in the same panel-relative fraction. */
+  tailX: number
+  tailY: number
+}
+
+export interface Panel {
+  id: string
+  /** Key into the asset store, or null while the panel is still empty. */
+  assetId: string | null
+  /** Framing of the artwork: 1 = fit the frame, higher crops in. */
+  zoom: number
+  /** Pan within the frame, -1 to 1, 0 being centred. */
+  offsetX: number
+  offsetY: number
+  balloons: Balloon[]
+}
+
+export interface Page {
+  id: string
+  title: string
+  layout: PageLayoutId
+  panels: Panel[]
+}
+
+export type PageLayoutId =
+  | 'splash' | 'two-rows' | 'three-rows' | 'three-columns'
+  | 'four-grid' | 'six-grid' | 'hero-two' | 'two-hero'
+
 export interface Book {
   id: string
+  kind: BookKind
   title: string
   subtitle: string
   author: string
@@ -28,7 +70,10 @@ export interface Book {
   description: string
   language: string
   cover: Cover
+  /** Used when kind is 'prose'. */
   chapters: Chapter[]
+  /** Used when kind is 'graphic'. */
+  pages: Page[]
   createdAt: number
   updatedAt: number
 }
@@ -39,4 +84,8 @@ export interface BookStats {
   /** Minutes, at 230 wpm. */
   readingMinutes: number
   chapters: number
+  /** Graphic novels only. */
+  pages: number
+  panels: number
+  artworkPlaced: number
 }

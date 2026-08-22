@@ -48,5 +48,8 @@ export const Icons = {
   Save: svg(<><path d="M5 5h11l3 3v11H5z" /><path d="M8 5v5h7V5M8 19v-5h8v5" /></>),
   Check: svg(<><path d="m5 13 4 4L19 7" /></>),
   Alert: svg(<><path d="M12 8v5M12 16.5h.01" /><circle cx="12" cy="12" r="9" /></>),
+  Panels: svg(<><rect x="3" y="3" width="8" height="8" rx="1" /><rect x="13" y="3" width="8" height="8" rx="1" /><rect x="3" y="13" width="18" height="8" rx="1" /></>),
+  Balloon: svg(<><path d="M20 12a7 7 0 0 1-7 7H9l-4 3v-4.2A7 7 0 0 1 4 12a7 7 0 0 1 7-7h2a7 7 0 0 1 7 7z" /></>),
+  Image: svg(<><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="8.5" cy="9.5" r="1.5" /><path d="m4 17 5-5 4 4 3-2 4 4" /></>),
   Sparkle: svg(<><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z" /></>),
 }

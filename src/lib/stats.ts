@@ -25,11 +25,29 @@ export function bookStats(book: Book): BookStats {
     words += countWords(text)
     characters += text.length
   }
+
+  let panels = 0
+  let artworkPlaced = 0
+  for (const page of book.pages) {
+    for (const panel of page.panels) {
+      panels++
+      if (panel.assetId) artworkPlaced++
+      // Lettering counts toward the word total: it is the script of the book.
+      for (const balloon of panel.balloons) {
+        words += countWords(balloon.text)
+        characters += balloon.text.length
+      }
+    }
+  }
+
   return {
     words,
     characters,
     readingMinutes: Math.max(words > 0 ? 1 : 0, Math.round(words / WORDS_PER_MINUTE)),
     chapters: book.chapters.filter((c) => c.kind === 'chapter').length,
+    pages: book.pages.length,
+    panels,
+    artworkPlaced,
   }
 }
 

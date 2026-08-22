@@ -2,27 +2,31 @@ import { useState } from 'react'
 import clsx from 'clsx'
 import { Icons } from '@/components/Icons'
 import { Modal } from '@/components/ui'
-import { exportBook, FORMAT_LABELS, type ExportFormat } from '@/lib/export'
+import { exportBook, FORMAT_LABELS, GRAPHIC_FORMATS, PROSE_FORMATS, type ExportFormat } from '@/lib/export'
 import { DEFAULT_PDF_OPTIONS, TRIM_LABELS, type PdfOptions, type TrimSize } from '@/lib/export/pdf-options'
+import { DEFAULT_COMIC_OPTIONS, DPI_CHOICES, type ComicOptions } from '@/lib/export/comic-options'
+import { TRIMS, type TrimId } from '@/lib/graphic/render'
 import { bookStats, formatCount } from '@/lib/stats'
 import type { Book } from '@/types'
 
-const FORMATS: ExportFormat[] = ['pdf', 'docx', 'epub', 'md', 'json']
 const FONT_SIZES = [10, 10.5, 11, 12, 13]
 
-export function ExportDialog({ book, onClose }: { book: Book; onClose: () => void }) {
+export function ExportDialog({ book, trim = 'comic', onClose }: { book: Book; trim?: TrimId; onClose: () => void }) {
+  const graphic = book.kind === 'graphic'
+  const formats = graphic ? GRAPHIC_FORMATS : PROSE_FORMATS
   const [format, setFormat] = useState<ExportFormat>('pdf')
   const [pdf, setPdf] = useState<PdfOptions>(DEFAULT_PDF_OPTIONS)
+  const [comic, setComic] = useState<ComicOptions>({ ...DEFAULT_COMIC_OPTIONS, trim })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const stats = bookStats(book)
-  const empty = stats.words === 0
+  const empty = graphic ? stats.artworkPlaced === 0 : stats.words === 0
 
   const run = async (): Promise<void> => {
     setBusy(true)
     setError(null)
     try {
-      await exportBook(book, format, format === 'pdf' ? pdf : undefined)
+      await exportBook(book, format, { pdf, comic })
       onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'The export failed. Please try again.')
@@ -34,7 +38,9 @@ export function ExportDialog({ book, onClose }: { book: Book; onClose: () => voi
   return (
     <Modal
       title="Export"
-      subtitle={`${formatCount(stats.words)} words across ${book.chapters.length} ${book.chapters.length === 1 ? 'section' : 'sections'}.`}
+      subtitle={graphic
+        ? `${stats.pages} ${stats.pages === 1 ? 'page' : 'pages'}, ${stats.artworkPlaced} of ${stats.panels} panels drawn.`
+        : `${formatCount(stats.words)} words across ${book.chapters.length} ${book.chapters.length === 1 ? 'section' : 'sections'}.`}
       onClose={onClose}
       footer={
         <>
@@ -49,14 +55,16 @@ export function ExportDialog({ book, onClose }: { book: Book; onClose: () => voi
         {empty && (
           <p className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
             <Icons.Alert className="mt-0.5 h-4 w-4 shrink-0" />
-            This book has no text yet. The export will contain only the title page and chapter headings.
+            {graphic
+              ? 'No artwork has been placed yet. The export will show empty panels and any lettering you have written.'
+              : 'This book has no text yet. The export will contain only the title page and chapter headings.'}
           </p>
         )}
 
         <div>
           <span className="label">Format</span>
           <div className="space-y-1.5">
-            {FORMATS.map((f) => (
+            {formats.map((f) => (
               <button
                 key={f}
                 className={clsx(
@@ -83,7 +91,48 @@ export function ExportDialog({ book, onClose }: { book: Book; onClose: () => voi
           </div>
         </div>
 
-        {format === 'pdf' && (
+        {graphic && (format === 'pdf' || format === 'cbz') && (
+          <div className="space-y-3 rounded-lg border border-rule bg-paper-sunk/60 p-3">
+            <label className="block">
+              <span className="label">Page size</span>
+              <select
+                className="field"
+                value={comic.trim}
+                onChange={(e) => setComic({ ...comic, trim: e.target.value as TrimId })}
+              >
+                {TRIMS.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="label">Resolution</span>
+              <select
+                className="field"
+                value={comic.dpi}
+                onChange={(e) => setComic({ ...comic, dpi: Number(e.target.value) })}
+              >
+                {DPI_CHOICES.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+              </select>
+              <span className="mt-1 block text-xs text-ink-faint">
+                Higher resolution means a sharper — and much larger — file.
+              </span>
+            </label>
+
+            {([['includeTitlePage', 'Title page'], ['borders', 'Panel borders']] as const).map(([key, label]) => (
+              <label key={key} className="flex items-center gap-2 text-sm text-ink-soft">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-rule-strong accent-accent"
+                  checked={comic[key]}
+                  onChange={(e) => setComic({ ...comic, [key]: e.target.checked })}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+        )}
+
+        {!graphic && format === 'pdf' && (
           <div className="space-y-3 rounded-lg border border-rule bg-paper-sunk/60 p-3">
             <label className="block">
               <span className="label">Page size</span>
