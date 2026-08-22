@@ -22,6 +22,24 @@ Deployed from this directory on Vercel (project `bookwright`, root directory
 `bookwright`). The production branch is `main`; pushes to other branches get
 their own preview URL.
 
+## Installing it as an app
+
+Bookwright is a progressive web app: open the link on a phone or laptop and add
+it to the home screen or dock, and it launches fullscreen with its own icon, no
+browser chrome, and no app store.
+
+- **iPhone / iPad** — open in Safari, tap Share, then *Add to Home Screen*.
+- **Android** — open in Chrome, tap the ⋮ menu, then *Install app*.
+- **Desktop** — Chrome or Edge show an install icon in the address bar.
+
+A service worker caches the app shell, so once it has been opened it keeps
+working with no connection — everything except generating pictures runs in the
+browser. Fingerprinted assets are cached indefinitely; the page itself is
+fetched fresh when online, so a new deploy is picked up as soon as it can be.
+
+The workspace adapts to a phone: the page list and the panel inspector move
+into drawers, and tapping a panel opens its controls.
+
 ## What it does
 
 **Write.** A book is a list of chapters you write in a rich-text editor — bold,

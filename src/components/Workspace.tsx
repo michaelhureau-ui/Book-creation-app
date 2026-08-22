@@ -7,7 +7,8 @@ import { DetailsPanel } from '@/components/DetailsPanel'
 import { Preview } from '@/components/Preview'
 import { ExportDialog } from '@/components/ExportDialog'
 import { GraphicWorkspace } from '@/components/graphic/GraphicWorkspace'
-import { EmptyState } from '@/components/ui'
+import { Drawer, EmptyState } from '@/components/ui'
+import { useMediaQuery } from '@/lib/useNarrow'
 import type { TrimId } from '@/lib/graphic/render'
 import { useOpenBook, useOpenChapter, useStore } from '@/lib/store'
 import { chapterNumbers } from '@/lib/book'
@@ -44,6 +45,12 @@ export function Workspace() {
   // The comic page size is a view/export setting rather than part of the book,
   // so it lives here and is handed to both the editor and the export dialog.
   const [trim, setTrim] = useState<TrimId>('comic')
+  // The chapter list is docked from 640px up; below that it moves to a drawer.
+  // It is rendered in one place or the other, never both.
+  const chaptersDocked = useMediaQuery('(min-width: 640px)')
+  const [chaptersOpen, setChaptersOpen] = useState(false)
+
+  useEffect(() => { if (chaptersDocked) setChaptersOpen(false) }, [chaptersDocked])
 
   // ⌘/Ctrl+P previews, ⌘/Ctrl+E exports — both common enough while drafting to
   // be worth a shortcut, and both otherwise buried behind the header buttons.
@@ -70,6 +77,15 @@ export function Workspace() {
         <button className="btn btn-ghost px-2" onClick={closeBook} title="Back to library">
           <Icons.Back /> <span className="hidden sm:inline">Library</span>
         </button>
+
+        {book.kind === 'prose' && !chaptersDocked && (
+          <button
+            className="btn btn-outline shrink-0 px-2 py-1 text-xs"
+            onClick={() => setChaptersOpen(true)}
+          >
+            Chapters
+          </button>
+        )}
 
         <div className="min-w-0 flex-1">
           <button
@@ -106,9 +122,11 @@ export function Workspace() {
         <GraphicWorkspace book={book} trim={trim} onTrimChange={setTrim} />
       ) : (
       <div className="flex min-h-0 flex-1">
-        <aside className="hidden w-60 shrink-0 border-r border-rule bg-paper-raised/60 sm:block">
-          <ChapterList book={book} />
-        </aside>
+        {chaptersDocked && (
+          <aside className="w-60 shrink-0 border-r border-rule bg-paper-raised/60">
+            <ChapterList book={book} />
+          </aside>
+        )}
 
         <main className="flex min-w-0 flex-1 flex-col bg-paper-raised">
           {chapter ? (
@@ -148,6 +166,12 @@ export function Workspace() {
           )}
         </main>
       </div>
+      )}
+
+      {chaptersOpen && !chaptersDocked && (
+        <Drawer title="Contents" side="left" onClose={() => setChaptersOpen(false)}>
+          <ChapterList book={book} />
+        </Drawer>
       )}
 
       {panel === 'details' && <DetailsPanel book={book} onClose={() => setPanel(null)} />}

@@ -1,5 +1,7 @@
+import { useEffect, useState } from 'react'
 import { Icons } from '@/components/Icons'
-import { EmptyState } from '@/components/ui'
+import { Drawer, EmptyState } from '@/components/ui'
+import { useMediaQuery } from '@/lib/useNarrow'
 import { PageCanvas } from '@/components/graphic/PageCanvas'
 import { PageList } from '@/components/graphic/PageList'
 import { PanelInspector } from '@/components/graphic/PanelInspector'
@@ -16,26 +18,67 @@ export function GraphicWorkspace({ book, trim, onTrimChange }: {
   const page = useOpenPage()
   const addPage = useStore((s) => s.addPage)
   const selectPanel = useStore((s) => s.selectPanel)
+  const selectedPanelId = useStore((s) => s.selectedPanelId)
   const pageIndex = book.pages.findIndex((p) => p.id === page?.id)
+
+  // Each side panel is rendered in exactly one place — docked or in a drawer,
+  // never both. Two mounted copies would mean two sets of controls with the
+  // same labels and two copies of the inspector's own state.
+  const pagesDocked = useMediaQuery('(min-width: 1024px)')
+  const inspectorDocked = useMediaQuery('(min-width: 1280px)')
+  const [drawer, setDrawer] = useState<'pages' | 'panel' | null>(null)
+
+  // On a phone the inspector is not on screen, so tapping a panel has to bring
+  // it up — otherwise a tap appears to do nothing at all.
+  useEffect(() => {
+    if (!inspectorDocked && selectedPanelId) setDrawer('panel')
+  }, [inspectorDocked, selectedPanelId])
+
+  // Docking a panel again makes its drawer redundant.
+  useEffect(() => {
+    setDrawer((open) => {
+      if (open === 'panel' && inspectorDocked) return null
+      if (open === 'pages' && pagesDocked) return null
+      return open
+    })
+  }, [inspectorDocked, pagesDocked])
 
   return (
     <div className="flex min-h-0 flex-1">
-      <aside className="hidden w-56 shrink-0 border-r border-rule bg-paper-raised/60 lg:block">
-        <PageList book={book} />
-      </aside>
+      {pagesDocked && (
+        <aside className="w-56 shrink-0 border-r border-rule bg-paper-raised/60">
+          <PageList book={book} />
+        </aside>
+      )}
 
       <main className="flex min-w-0 flex-1 flex-col bg-paper-sunk/40">
         {page ? (
           <>
-            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-rule bg-paper-raised px-5 py-2.5">
-              <p className="truncate text-sm font-medium text-ink">
+            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-rule bg-paper-raised px-3 py-2.5 sm:px-5">
+              {!pagesDocked && (
+                <button
+                  className="btn btn-outline shrink-0 px-2 py-1 text-xs"
+                  onClick={() => setDrawer('pages')}
+                >
+                  <Icons.Panels className="h-3.5 w-3.5" /> Pages
+                </button>
+              )}
+              <p className="min-w-0 flex-1 truncate text-sm font-medium text-ink">
                 Page {pageIndex + 1}
                 {/* Pages are named "Page N" by default; repeating that reads as a glitch. */}
                 {page.title && page.title !== `Page ${pageIndex + 1}` && (
                   <span className="ml-2 font-normal text-ink-faint">{page.title}</span>
                 )}
               </p>
-              <label className="flex items-center gap-2 text-xs text-ink-faint">
+              {!inspectorDocked && (
+                <button
+                  className="btn btn-primary shrink-0 px-2 py-1 text-xs"
+                  onClick={() => setDrawer('panel')}
+                >
+                  <Icons.Pencil className="h-3.5 w-3.5" /> Panel
+                </button>
+              )}
+              <label className="hidden items-center gap-2 text-xs text-ink-faint sm:flex">
                 Page size
                 <select
                   className="rounded-md border border-rule-strong bg-paper-raised px-2 py-1 text-xs text-ink focus:border-accent focus:outline-none"
@@ -79,9 +122,22 @@ export function GraphicWorkspace({ book, trim, onTrimChange }: {
         )}
       </main>
 
-      <aside className="hidden w-72 shrink-0 border-l border-rule bg-paper-raised xl:block">
-        {page && <PanelInspector book={book} page={page} />}
-      </aside>
+      {inspectorDocked && (
+        <aside className="w-72 shrink-0 border-l border-rule bg-paper-raised">
+          {page && <PanelInspector book={book} page={page} />}
+        </aside>
+      )}
+
+      {drawer === 'pages' && !pagesDocked && (
+        <Drawer title="Pages" side="left" onClose={() => setDrawer(null)}>
+          <PageList book={book} />
+        </Drawer>
+      )}
+      {drawer === 'panel' && !inspectorDocked && page && (
+        <Drawer title={`Page ${pageIndex + 1}`} onClose={() => setDrawer(null)}>
+          <PanelInspector book={book} page={page} />
+        </Drawer>
+      )}
     </div>
   )
 }

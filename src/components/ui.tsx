@@ -127,3 +127,47 @@ export function ConfirmDialog({
     </Modal>
   )
 }
+
+/**
+ * A panel that docks beside the content on a wide screen and slides in over it
+ * on a narrow one. Used for the chapter list and the panel inspector, which
+ * would otherwise be unreachable on a phone.
+ */
+export function Drawer({
+  title, side = 'right', onClose, children,
+}: {
+  title: string
+  side?: 'left' | 'right'
+  onClose: () => void
+  children: ReactNode
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div
+      className="fixed inset-0 z-40 flex bg-ink/35 backdrop-blur-sm"
+      onPointerDown={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div
+        className={clsx(
+          'flex h-full w-[85vw] max-w-sm flex-col border-rule bg-paper-raised shadow-card',
+          side === 'right' ? 'ml-auto border-l' : 'mr-auto border-r',
+        )}
+        role="dialog"
+        aria-label={title}
+      >
+        <header className="flex shrink-0 items-center justify-between border-b border-rule px-4 py-2.5">
+          <h2 className="text-sm font-semibold text-ink">{title}</h2>
+          <button className="btn btn-ghost px-2" onClick={onClose} aria-label={`Close ${title}`}>
+            <Icons.Close />
+          </button>
+        </header>
+        <div className="min-h-0 flex-1 overflow-y-auto scrollbar-slim">{children}</div>
+      </div>
+    </div>
+  )
+}
