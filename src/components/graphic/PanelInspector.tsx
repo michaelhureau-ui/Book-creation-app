@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { Icons } from '@/components/Icons'
 import { useStore } from '@/lib/store'
@@ -7,6 +7,8 @@ import { BALLOON_LABELS } from '@/lib/graphic/pages'
 import { LAYOUTS } from '@/lib/graphic/layouts'
 import { DrawingBoard } from '@/components/graphic/DrawingBoard'
 import { panelAspect } from '@/components/graphic/geometry'
+import { generatePanelArt, GenerationFailed, NOT_CONFIGURED_HELP } from '@/lib/graphic/generate'
+import { MAX_SUBJECT_LENGTH, STYLES, type ArtStyle } from '@/lib/graphic/image-prompt'
 import type { BalloonKind, Book, Page, Panel } from '@/types'
 
 const BALLOON_KINDS: BalloonKind[] = ['speech', 'thought', 'caption', 'shout', 'sfx']
@@ -41,6 +43,98 @@ function Slider({
   )
 }
 
+/**
+ * Type what should be in the panel and the server draws it. The key lives on
+ * the deployment, so an app served without one says so plainly instead of
+ * looking broken.
+ */
+function GenerateSection({ book, page, panel, panelIndex }: { book: Book; page: Page; panel: Panel; panelIndex: number }) {
+  const setPanelArt = useStore((s) => s.setPanelArt)
+  const [subject, setSubject] = useState('')
+  const [style, setStyle] = useState<ArtStyle>('color')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<{ code: string; message: string } | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
+
+  // Abandon an in-flight request if the panel changes underneath us.
+  useEffect(() => () => abortRef.current?.abort(), [])
+
+  const generate = async (): Promise<void> => {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    const controller = new AbortController()
+    abortRef.current = controller
+    try {
+      const assetId = await generatePanelArt(
+        book.id, subject, style, panelAspect(page, panelIndex, 'comic'), controller.signal)
+      setPanelArt(book.id, page.id, panel.id, assetId)
+      setSubject('')
+    } catch (err) {
+      if (controller.signal.aborted) return
+      if (err instanceof GenerationFailed) setError({ code: err.code, message: err.message })
+      else setError({ code: 'provider_error', message: 'The picture could not be made.' })
+    } finally {
+      abortRef.current = null
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="space-y-2">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-faint">Make a picture</h3>
+
+      <input
+        className="field py-1.5 text-xs"
+        value={subject}
+        maxLength={MAX_SUBJECT_LENGTH}
+        placeholder="a red fox on a night bus"
+        aria-label="What should be in the panel"
+        disabled={busy}
+        onChange={(e) => setSubject(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') void generate() }}
+      />
+
+      <div className="flex gap-1.5">
+        <select
+          className="min-w-0 flex-1 rounded-md border border-rule-strong bg-paper-raised px-1.5 py-1 text-xs text-ink focus:border-accent focus:outline-none"
+          value={style}
+          aria-label="Art style"
+          disabled={busy}
+          onChange={(e) => setStyle(e.target.value as ArtStyle)}
+        >
+          {STYLES.map((option) => (
+            <option key={option.id} value={option.id}>{option.label}</option>
+          ))}
+        </select>
+        <button
+          className="btn btn-primary shrink-0 whitespace-nowrap text-xs"
+          disabled={busy || !subject.trim()}
+          onClick={() => void generate()}
+        >
+          <Icons.Sparkle className="h-3.5 w-3.5" /> {busy ? 'Drawing…' : 'Make it'}
+        </button>
+      </div>
+
+      {busy && (
+        <p className="text-xs text-ink-faint">
+          Drawing your picture — this usually takes a few seconds.
+        </p>
+      )}
+
+      {error && (
+        <p className="flex items-start gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-900">
+          <Icons.Alert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            {error.message}
+            {error.code === 'not_configured' && <> {NOT_CONFIGURED_HELP}</>}
+          </span>
+        </p>
+      )}
+    </section>
+  )
+}
+
 function ArtworkSection({ book, page, panel, panelIndex }: { book: Book; page: Page; panel: Panel; panelIndex: number }) {
   const updatePanel = useStore((s) => s.updatePanel)
   const setPanelArt = useStore((s) => s.setPanelArt)
@@ -66,7 +160,7 @@ function ArtworkSection({ book, page, panel, panelIndex }: { book: Book; page: P
 
   return (
     <section className="space-y-3">
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-faint">Artwork</h3>
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-faint">Or draw it yourself</h3>
 
       <input
         ref={fileInput}
@@ -281,6 +375,7 @@ export function PanelInspector({ book, page }: { book: Book; page: Page }) {
       {panel ? (
         <div className="space-y-5 p-4">
           <p className="text-sm font-semibold text-ink">Panel {panelIndex + 1}</p>
+          <GenerateSection book={book} page={page} panel={panel} panelIndex={panelIndex} />
           <ArtworkSection book={book} page={page} panel={panel} panelIndex={panelIndex} />
           <LetteringSection book={book} page={page} panel={panel} />
         </div>

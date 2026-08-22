@@ -58,6 +58,22 @@ four or six up, and a hero panel over or under a pair. Changing a page's layout
 keeps the artwork already placed; only panels the new layout has no room for are
 dropped, along with their images.
 
+**Type a thing and get a picture.** Describe what should be in the panel — "a
+red fox on a night bus" — pick an art style, and the panel is filled with a
+generated image. The prompt is shaped for comics (it names the medium and asks
+for no lettering, since balloons are added afterwards) and the output size is
+matched to the panel's shape so the artwork is barely cropped.
+
+This is the one feature that needs setting up, because image models are not free
+and the key cannot live in the browser — anyone could read it out of the bundle
+and spend your credit. `api/generate-image.ts` is a serverless function that
+holds the key server-side. Set `OPENAI_API_KEY` on the Vercel project and
+redeploy. Without it the app says so plainly and everything else still works.
+
+> The endpoint is public once deployed — anyone with the URL can generate images
+> on your account. Vercel's deployment protection (Project → Settings →
+> Deployment Protection) is the simplest way to lock it to you.
+
 **Draw the panels.** Every panel opens a drawing board: brush, straight line,
 flood fill, and eraser, with a palette plus a custom colour, six brush sizes,
 undo/redo (`⌘Z` / `⇧⌘Z`), and clear. The sheet is shaped to the panel it belongs
@@ -98,7 +114,7 @@ src/
 │   ├── store.ts         Zustand state + debounced autosave
 │   ├── stats.ts         word counts, reading time, panel counts
 │   ├── cover.ts         jacket palettes and layouts
-│   ├── graphic/         layouts · pages · assets · drawing · the page renderer
+│   ├── graphic/         layouts · pages · assets · drawing · generation · renderer
 │   └── export/          markdown · docx · epub · pdf · comic (+ shared options)
 └── components/
     ├── graphic/         PageCanvas, PageList, PanelInspector, DrawingBoard
@@ -141,5 +157,6 @@ npm run build
 
 The unit tests cover the parts worth pinning down — the HTML parser, chapter
 numbering, word counts, Markdown generation, backup import validation, panel
-layout geometry, the artwork crop maths, and the drawing board's flood fill and
-colour parsing.
+layout geometry, the artwork crop maths, the drawing board's flood fill and
+colour parsing, and image generation's prompt shaping, size selection, and every
+failure path (run against a stubbed provider, so no API key or spend is needed).
