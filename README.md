@@ -82,11 +82,25 @@ generated image. The prompt is shaped for comics (it names the medium and asks
 for no lettering, since balloons are added afterwards) and the output size is
 matched to the panel's shape so the artwork is barely cropped.
 
-This is the one feature that needs setting up, because image models are not free
-and the key cannot live in the browser — anyone could read it out of the bundle
-and spend your credit. `api/generate-image.ts` is a serverless function that
-holds the key server-side. Set `OPENAI_API_KEY` on the Vercel project and
-redeploy. Without it the app says so plainly and everything else still works.
+This is the one feature that needs setting up, because the key cannot live in
+the browser — anyone could read it out of the bundle and spend your credit.
+`api/generate-image.ts` is a serverless function that holds it server-side.
+
+Set **one** of these environment variables on the Vercel project and redeploy:
+
+| Variable | Provider | Notes |
+| --- | --- | --- |
+| `GOOGLE_API_KEY` | Google AI Studio (`aistudio.google.com`) | Has a free allowance, so you can start without paying. `GEMINI_API_KEY` works too. |
+| `OPENAI_API_KEY` | OpenAI (`platform.openai.com`) | Needs credit on the account; roughly 2–10¢ an image. |
+
+Google is used when both are present. Note that a Claude subscription cannot be
+used here: the Anthropic API generates text, not images.
+
+Rather than hardcode a Google model name that will age, the function reads
+Google's own model list and picks an image model from it, preferring a
+dedicated Imagen model. Pin one with `GOOGLE_IMAGE_MODEL` to override that.
+
+Without any key the app says so plainly and everything else still works.
 
 > The endpoint is public once deployed — anyone with the URL can generate images
 > on your account. Vercel's deployment protection (Project → Settings →

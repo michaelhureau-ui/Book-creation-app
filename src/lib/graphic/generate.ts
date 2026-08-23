@@ -96,4 +96,4 @@ export async function generatePanelArt(
 
 /** What to tell the writer when generation is switched off on this deployment. */
 export const NOT_CONFIGURED_HELP =
-  'Add an OPENAI_API_KEY environment variable to this app on Vercel, then redeploy. Until then you can still draw panels or bring in your own pictures.'
+  'Add a GOOGLE_API_KEY (free tier at aistudio.google.com) or an OPENAI_API_KEY environment variable to this app on Vercel, then redeploy. Until then you can still draw panels or bring in your own pictures.'

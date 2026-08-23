@@ -82,6 +82,16 @@ export function pickSize(aspect: number): string {
 /** Turn a provider's HTTP failure into something worth showing a writer. */
 export function describeProviderFailure(status: number, body: string): GenerateError {
   const lower = body.toLowerCase()
+  // Google answers a bad or unauthorised key with 400, not 401.
+  if (lower.includes('api key not valid') || lower.includes('api_key_invalid') ||
+      lower.includes('permission_denied') || lower.includes('has not been used in project')) {
+    return { code: 'not_configured', message: 'The image service rejected the API key. Check the key set on the deployment.' }
+  }
+  if (lower.includes('resource_exhausted') || lower.includes('rate limit') || lower.includes('too many requests')) {
+    return lower.includes('quota') || lower.includes('billing')
+      ? { code: 'quota', message: 'The image account is out of credit or has hit its free allowance. Check the provider.' }
+      : { code: 'rate_limited', message: 'Too many images at once. Wait a moment and try again.' }
+  }
   if (status === 401 || status === 403) {
     return { code: 'not_configured', message: 'The image service rejected the API key. Check the key set on the deployment.' }
   }
@@ -98,6 +108,141 @@ export function describeProviderFailure(status: number, body: string): GenerateE
     return { code: 'rejected', message: 'The image service would not draw that. Try describing it differently.' }
   }
   return { code: 'provider_error', message: `The image service failed (${status}). Try again in a moment.` }
+}
+
+// ── Google (AI Studio / Gemini) ───────────────────────────────────────────────
+
+/** Aspect ratios Google's image models accept, as width:height. */
+export const GOOGLE_RATIOS: [string, number][] = [
+  ['1:1', 1], ['3:4', 3 / 4], ['4:3', 4 / 3], ['9:16', 9 / 16], ['16:9', 16 / 9],
+]
+
+/** Nearest supported ratio to the panel, compared in log space. */
+export function pickGoogleRatio(aspect: number): string {
+  if (!Number.isFinite(aspect) || aspect <= 0) return '1:1'
+  let best = '1:1'
+  let bestDistance = Infinity
+  for (const [name, value] of GOOGLE_RATIOS) {
+    const distance = Math.abs(Math.log(value) - Math.log(aspect))
+    if (distance < bestDistance) { bestDistance = distance; best = name }
+  }
+  return best
+}
+
+interface GoogleModel {
+  name?: string
+  supportedGenerationMethods?: string[]
+}
+
+/**
+ * Pick an image model from Google's own model list rather than hardcoding a
+ * name. Model ids change; this keeps working when they do, and a deployment
+ * can still pin one with GOOGLE_IMAGE_MODEL.
+ */
+export function chooseGoogleModel(models: GoogleModel[]): string | null {
+  const usable = models
+    .map((m) => (m.name ?? '').replace(/^models\//, ''))
+    .filter((name) => /imagen|image/i.test(name))
+    // A model that only edits or upscales cannot generate from a prompt alone.
+    .filter((name) => !/edit|upscale|segment|embedding/i.test(name))
+  if (usable.length === 0) return null
+  // Prefer a dedicated Imagen model, then the newest-looking name.
+  const imagen = usable.filter((n) => /imagen/i.test(n))
+  const pool = imagen.length > 0 ? imagen : usable
+  return pool.sort().reverse()[0]
+}
+
+/** Both response shapes Google uses: Imagen `:predict` and Gemini inline data. */
+export function extractGoogleImage(body: unknown): { data: string; mime: string } | null {
+  const json = body as {
+    predictions?: { bytesBase64Encoded?: string; mimeType?: string }[]
+    candidates?: { content?: { parts?: { inlineData?: { data?: string; mimeType?: string } }[] } }[]
+  }
+
+  const prediction = json?.predictions?.find((p) => p?.bytesBase64Encoded)
+  if (prediction?.bytesBase64Encoded) {
+    return { data: prediction.bytesBase64Encoded, mime: prediction.mimeType || 'image/png' }
+  }
+
+  for (const candidate of json?.candidates ?? []) {
+    for (const part of candidate?.content?.parts ?? []) {
+      if (part?.inlineData?.data) {
+        return { data: part.inlineData.data, mime: part.inlineData.mimeType || 'image/png' }
+      }
+    }
+  }
+  return null
+}
+
+const GOOGLE_BASE = 'https://generativelanguage.googleapis.com/v1beta'
+/** Used only if the model list cannot be read. */
+const GOOGLE_FALLBACK_MODEL = 'imagen-3.0-generate-002'
+/** Model choice is stable for the life of a warm lambda. */
+let cachedGoogleModel: string | null = null
+
+/** Clears the memoised model choice. Exposed so tests start from a clean slate. */
+export function resetGoogleModelCache(): void {
+  cachedGoogleModel = null
+}
+
+async function resolveGoogleModel(key: string, signal: AbortSignal): Promise<string> {
+  if (process.env.GOOGLE_IMAGE_MODEL) return process.env.GOOGLE_IMAGE_MODEL
+  if (cachedGoogleModel) return cachedGoogleModel
+  try {
+    const res = await fetch(`${GOOGLE_BASE}/models?pageSize=200`, {
+      headers: { 'x-goog-api-key': key },
+      signal,
+    })
+    if (res.ok) {
+      const body = await res.json() as { models?: GoogleModel[] }
+      const chosen = chooseGoogleModel(body.models ?? [])
+      if (chosen) { cachedGoogleModel = chosen; return chosen }
+    }
+  } catch { /* fall through to the default */ }
+  return GOOGLE_FALLBACK_MODEL
+}
+
+async function generateWithGoogle(
+  key: string, prompt: string, aspect: number, signal: AbortSignal,
+): Promise<{ ok: true; image: string; mime: string } | { ok: false; status: number; error: GenerateError }> {
+  const model = await resolveGoogleModel(key, signal)
+  const ratio = pickGoogleRatio(aspect)
+  const imagen = /imagen/i.test(model)
+
+  const url = `${GOOGLE_BASE}/models/${model}:${imagen ? 'predict' : 'generateContent'}`
+  const payload = imagen
+    ? { instances: [{ prompt }], parameters: { sampleCount: 1, aspectRatio: ratio } }
+    : {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { responseModalities: ['IMAGE'], imageConfig: { aspectRatio: ratio } },
+    }
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal,
+  })
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    return { ok: false, status: res.status, error: describeProviderFailure(res.status, body) }
+  }
+
+  const image = extractGoogleImage(await res.json().catch(() => null))
+  if (!image) {
+    // A refusal comes back as a 200 with no image, so say what happened rather
+    // than letting it be flattened into a generic provider error.
+    return {
+      ok: false,
+      status: 502,
+      error: {
+        code: 'rejected',
+        message: 'The image service returned no picture — it may have declined that description. Try wording it differently.',
+      },
+    }
+  }
+  return { ok: true, image: image.data, mime: image.mime }
 }
 
 const PROVIDER_URL = 'https://api.openai.com/v1/images/generations'
@@ -117,8 +262,10 @@ export default async function handler(req: Req, res: Res): Promise<void> {
     return
   }
 
-  const key = process.env.OPENAI_API_KEY
-  if (!key) {
+  // Whichever key the deployment has decides the provider.
+  const googleKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY
+  const openaiKey = process.env.OPENAI_API_KEY
+  if (!googleKey && !openaiKey) {
     fail(res, 501, {
       code: 'not_configured',
       message: 'Image generation is not switched on for this deployment yet.',
@@ -151,10 +298,21 @@ export default async function handler(req: Req, res: Res): Promise<void> {
   const timer = setTimeout(() => abort.abort(), TIMEOUT_MS)
 
   try {
+    if (googleKey) {
+      const result = await generateWithGoogle(googleKey, prompt, aspect, abort.signal)
+      if (result.ok) {
+        res.status(200).json({ image: result.image, mime: result.mime })
+      } else {
+        // A bad key is the deployment owner's problem, not a client error.
+        fail(res, result.error.code === 'not_configured' ? 502 : result.status, result.error)
+      }
+      return
+    }
+
     const response = await fetch(PROVIDER_URL, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${key}`,
+        Authorization: `Bearer ${openaiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ model: MODEL, prompt, n: 1, size: pickSize(aspect) }),
