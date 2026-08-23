@@ -37,10 +37,27 @@ describe('generate-image endpoint', () => {
     expect((out.body as { error: { code: string } }).error.code).toBe('not_configured')
   })
 
-  it('rejects anything but POST', async () => {
+  it('rejects anything but GET or POST', async () => {
+    const { res, out } = makeRes()
+    await handler({ method: 'DELETE' }, res)
+    expect(out.code).toBe(405)
+  })
+
+  it('reports through GET that a key reached this deployment', async () => {
     const { res, out } = makeRes()
     await handler({ method: 'GET' }, res)
-    expect(out.code).toBe(405)
+    expect(out.code).toBe(200)
+    expect(out.body).toMatchObject({ configured: true, provider: 'openai' })
+    // The check must never leak the key itself.
+    expect(JSON.stringify(out.body)).not.toContain('test-key')
+  })
+
+  it('reports through GET when no key is present', async () => {
+    delete process.env.OPENAI_API_KEY
+    const { res, out } = makeRes()
+    await handler({ method: 'GET' }, res)
+    expect(out.body).toMatchObject({ configured: false, provider: null })
+    expect((out.body as { looksFor: string[] }).looksFor).toContain('GOOGLE_API_KEY')
   })
 
   it('rejects an empty subject before spending a request', async () => {

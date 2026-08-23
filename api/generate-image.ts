@@ -257,14 +257,29 @@ function fail(res: Res, status: number, error: GenerateError): void {
 }
 
 export default async function handler(req: Req, res: Res): Promise<void> {
+  // Whichever key the deployment has decides the provider.
+  const googleKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY
+  const openaiKey = process.env.OPENAI_API_KEY
+  const provider = googleKey ? 'google' : openaiKey ? 'openai' : null
+
+  // A GET reports whether a key reached this deployment. Setting an
+  // environment variable on the wrong project — or on one that has not been
+  // rebuilt since — is otherwise invisible and easy to mistake for a bug in
+  // the app. No key material is exposed, only whether one is present.
+  if (req.method === 'GET') {
+    res.status(200).json({
+      configured: provider !== null,
+      provider,
+      looksFor: ['GOOGLE_API_KEY', 'GEMINI_API_KEY', 'OPENAI_API_KEY'],
+      model: process.env.GOOGLE_IMAGE_MODEL || null,
+    })
+    return
+  }
+
   if (req.method !== 'POST') {
     fail(res, 405, { code: 'provider_error', message: 'Use POST.' })
     return
   }
-
-  // Whichever key the deployment has decides the provider.
-  const googleKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY
-  const openaiKey = process.env.OPENAI_API_KEY
   if (!googleKey && !openaiKey) {
     fail(res, 501, {
       code: 'not_configured',
