@@ -161,6 +161,22 @@ describe('generatePanelArt (browser side)', () => {
       .rejects.toMatchObject({ code: 'provider_error' })
   })
 
+  it('recognises a build with no endpoint rather than blaming the image service', async () => {
+    // Vercel answers a missing route with its own 404 page, not our JSON.
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('The page could not be found', { status: 404 })))
+    const failure = await generatePanelArt('book-1', 'a fox', 'color', 1).catch((e) => e)
+    expect(failure.code).toBe('stale_build')
+    expect(failure.message).toMatch(/built before/i)
+    expect(failure.message).not.toMatch(/image service failed/i)
+  })
+
+  it('still trusts our own error body on a 404', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(
+      JSON.stringify({ error: { code: 'rejected', message: 'no' } }), { status: 404 })))
+    await expect(generatePanelArt('book-1', 'a fox', 'color', 1))
+      .rejects.toMatchObject({ code: 'rejected' })
+  })
+
   it('reports a network failure distinctly', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch') }))
     await expect(generatePanelArt('book-1', 'a fox', 'color', 1))

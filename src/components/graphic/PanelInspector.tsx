@@ -7,7 +7,7 @@ import { BALLOON_LABELS } from '@/lib/graphic/pages'
 import { LAYOUTS } from '@/lib/graphic/layouts'
 import { DrawingBoard } from '@/components/graphic/DrawingBoard'
 import { panelAspect } from '@/components/graphic/geometry'
-import { generatePanelArt, GenerationFailed, NOT_CONFIGURED_HELP } from '@/lib/graphic/generate'
+import { generatePanelArt, GenerationFailed, NOT_CONFIGURED_HELP, STALE_BUILD_HELP } from '@/lib/graphic/generate'
 import { MAX_SUBJECT_LENGTH, STYLES, type ArtStyle } from '@/lib/graphic/image-prompt'
 import type { BalloonKind, Book, Page, Panel } from '@/types'
 
@@ -128,6 +128,7 @@ function GenerateSection({ book, page, panel, panelIndex }: { book: Book; page: 
           <span>
             {error.message}
             {error.code === 'not_configured' && <> {NOT_CONFIGURED_HELP}</>}
+            {error.code === 'stale_build' && <> {STALE_BUILD_HELP}</>}
           </span>
         </p>
       )}

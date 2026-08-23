@@ -37,6 +37,7 @@ export function cleanSubject(subject: string): string {
 /** Error shapes the browser needs to tell apart, so it can explain each one. */
 export type GenerateErrorCode =
   | 'not_configured'
+  | 'stale_build'
   | 'empty_prompt'
   | 'rejected'
   | 'rate_limited'

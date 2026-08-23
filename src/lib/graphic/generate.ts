@@ -77,7 +77,19 @@ export async function generatePanelArt(
   if (!response.ok) {
     // The endpoint reports a structured error; fall back if something else answered.
     const body = await response.json().catch(() => null) as { error?: GenerateError } | null
-    throw new GenerationFailed(body?.error ?? {
+    if (body?.error) throw new GenerationFailed(body.error)
+
+    // A 404 with no error body means the endpoint itself is not there — this
+    // build predates image generation. Saying "the image service failed" would
+    // send someone hunting for a problem with their API key instead.
+    if (response.status === 404) {
+      throw new GenerationFailed({
+        code: 'stale_build',
+        message: 'This version of the app was built before picture-making existed, so there is nothing here to ask.',
+      })
+    }
+
+    throw new GenerationFailed({
       code: 'provider_error',
       message: `The image service failed (${response.status}).`,
     })
@@ -97,3 +109,7 @@ export async function generatePanelArt(
 /** What to tell the writer when generation is switched off on this deployment. */
 export const NOT_CONFIGURED_HELP =
   'Add a GOOGLE_API_KEY (free tier at aistudio.google.com) or an OPENAI_API_KEY environment variable to this app on Vercel, then redeploy. Until then you can still draw panels or bring in your own pictures.'
+
+/** Shown when the deployment is older than the feature itself. */
+export const STALE_BUILD_HELP =
+  'Open the newest deployment of the app — or redeploy the latest commit — and try again.'
