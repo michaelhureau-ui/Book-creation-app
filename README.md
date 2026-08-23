@@ -5,22 +5,17 @@ a **novel** — chapters of prose, exported as PDF, Word, EPUB, or Markdown — 
 **graphic novel** — pages of panels, artwork, and lettering, exported as a print
 PDF, a CBZ comic archive, or a lettering script.
 
-It lives in this repository but is entirely self-contained: it does not import
-from Voloboard, share its build, or use its auth, database, or navigation. Every
-book is stored locally in the browser (IndexedDB); there is no server and no
-account.
-
-**Live: <https://bookwright-gamma.vercel.app>**
+Everything runs in the browser: books are stored locally (IndexedDB), there is
+no account, and the only server-side piece is a small function that holds the
+image-generation key.
 
 ```bash
-cd bookwright
 npm install
 npm run dev        # http://localhost:5180
 ```
 
-Deployed from this directory on Vercel (project `bookwright`, root directory
-`bookwright`). The production branch is `main`; pushes to other branches get
-their own preview URL.
+Deployed on Vercel from the `main` branch; pushes to other branches get their
+own preview URL.
 
 ## Installing it as an app
 
