@@ -6,11 +6,16 @@ export function createPanel(): Panel {
   return { id: newId(), assetId: null, zoom: 1, offsetX: 0, offsetY: 0, balloons: [] }
 }
 
-export function createPage(layout: PageLayoutId = 'four-grid', title = 'New page'): Page {
+export function createPage(
+  layout: PageLayoutId = 'four-grid',
+  title = 'New page',
+  chapterId: string | null = null,
+): Page {
   return {
     id: newId(),
     title,
     layout,
+    chapterId,
     panels: Array.from({ length: panelCount(layout) }, createPanel),
   }
 }

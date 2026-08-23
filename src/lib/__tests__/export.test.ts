@@ -8,14 +8,15 @@ function sample(): Book {
   const book = createBook('The Salt Road', 'M. Hureau')
   book.subtitle = 'A crossing'
   book.chapters = [
-    { ...createChapter('front', 'Preface'), content: '<p>Before we begin.</p>' },
-    {
-      ...createChapter('chapter', 'The Crossing'),
-      content: '<p>Nobody spoke. <strong>Speaking cost water.</strong></p>'
-        + '<blockquote><p>Salt is only patient water.</p></blockquote>'
-        + '<ul><li><p>Rock salt</p></li><li><p>Nine camels</p></li></ul>'
-        + '<ol><li><p>First</p></li></ol><hr>',
-    },
+    createChapter('front', 'Preface', '<p>Before we begin.</p>'),
+    createChapter(
+      'chapter',
+      'The Crossing',
+      '<p>Nobody spoke. <strong>Speaking cost water.</strong></p>'
+      + '<blockquote><p>Salt is only patient water.</p></blockquote>'
+      + '<ul><li><p>Rock salt</p></li><li><p>Nine camels</p></li></ul>'
+      + '<ol><li><p>First</p></li></ol><hr>',
+    ),
   ]
   return book
 }
@@ -44,7 +45,7 @@ describe('buildMarkdown', () => {
 
   it('escapes markdown punctuation in prose', () => {
     const book = createBook('T')
-    book.chapters = [{ ...createChapter('chapter', 'C'), content: '<p>A *star* and _score_.</p>' }]
+    book.chapters = [createChapter('chapter', 'C', '<p>A *star* and _score_.</p>')]
     expect(buildMarkdown(book)).toContain('A \\*star\\* and \\_score\\_')
   })
 
@@ -62,7 +63,7 @@ describe('JSON backup', () => {
     expect(restored.title).toBe(original.title)
     expect(restored.subtitle).toBe(original.subtitle)
     expect(restored.chapters).toHaveLength(2)
-    expect(restored.chapters[1].content).toBe(original.chapters[1].content)
+    expect(restored.chapters[1].pages[0].content).toBe(original.chapters[1].pages[0].content)
     expect(restored.cover).toEqual(original.cover)
   })
 
@@ -85,7 +86,8 @@ describe('JSON backup', () => {
     expect(restored.author).toBe('')
     expect(restored.language).toBe('en')
     expect(restored.cover.palette).toBe('sepia')
-    expect(restored.chapters[0]).toMatchObject({ kind: 'chapter', content: '' })
+    expect(restored.chapters[0]).toMatchObject({ kind: 'chapter' })
+    expect(restored.chapters[0].pages).toEqual([{ id: expect.any(String), content: '' }])
     expect(typeof restored.chapters[0].createdAt).toBe('number')
   })
 })

@@ -44,6 +44,12 @@ split into front matter (a preface), body chapters, and back matter (an
 appendix). Only body chapters are numbered, the way a printed book does it.
 Everything autosaves.
 
+**As many pages in a chapter as you want.** A chapter is written as a run of
+pages, listed above the editor — add one and keep writing, reorder them, delete
+one. Each page starts a fresh sheet in the PDF and the `.docx`, so you decide
+where the breaks fall instead of leaving it to the typesetter. A chapter written
+before pages existed opens as a single page, with nothing to convert.
+
 **See it as a book.** Preview shows the jacket, title page, table of contents,
 and every chapter typeset as pages. The jacket itself is generated from a
 palette and a layout, so a book always has a presentable cover without you
@@ -53,8 +59,8 @@ sourcing artwork.
 
 | Format | What you get |
 | --- | --- |
-| **PDF** | Typeset for print: title page, contents with dot leaders and real page numbers, chapters opening on fresh pages, justified body text, running heads and folios. Choose 6×9 in, A5, or US Letter, and the body text size. |
-| **Word** | A `.docx` with genuine heading styles and page breaks between chapters — editable in Word, Pages, or Google Docs. |
+| **PDF** | Typeset for print: title page, contents with dot leaders and real page numbers, chapters and their pages opening on fresh sheets, justified body text, running heads and folios. Choose 6×9 in, A5, or US Letter, and the body text size. |
+| **Word** | A `.docx` with genuine heading styles and page breaks between chapters and between the pages within them — editable in Word, Pages, or Google Docs. |
 | **EPUB** | A valid EPUB 3 package with navigation, metadata, and a stylesheet, for Kindle, Apple Books, or Kobo. |
 | **Markdown** | Plain text with formatting preserved and punctuation escaped. |
 | **Backup** | The whole project as JSON, re-importable from the library screen. |
@@ -65,6 +71,15 @@ Keyboard: `⌘/Ctrl+P` previews, `⌘/Ctrl+E` exports.
 
 Choosing **Graphic novel** when you start a book swaps the chapter editor for a
 page-and-panel one.
+
+**Group pages into chapters.** Add a chapter from the page list and pages file
+under it; add as many pages to each chapter as the story needs. The arrows on a
+page move it through the book and, at a chapter's edge, into the chapter next
+door — or use the *Chapter* picker above the page. Pages added before there were
+any chapters stay where they are, ahead of the first one. Page numbers run
+straight through the book, chapters and all, and the exported script announces
+each chapter before its pages. Deleting a chapter keeps its pages; only the
+heading goes.
 
 **Lay out a page.** Eight layouts — splash, two or three rows, three columns,
 four or six up, and a hero panel over or under a pair. Changing a page's layout
@@ -136,7 +151,7 @@ own.
 src/
 ├── lib/
 │   ├── blocks.ts        HTML → structured blocks (the shared document model)
-│   ├── book.ts          ids, chapter numbering, reordering, slugs
+│   ├── book.ts          ids, chapter numbering, page grouping, reordering, slugs
 │   ├── db.ts            IndexedDB persistence (books + artwork assets)
 │   ├── store.ts         Zustand state + debounced autosave
 │   ├── stats.ts         word counts, reading time, panel counts
@@ -145,8 +160,14 @@ src/
 │   └── export/          markdown · docx · epub · pdf · comic (+ shared options)
 └── components/
     ├── graphic/         PageCanvas, PageList, PanelInspector, DrawingBoard
-    └── ...              Library, Workspace, Editor, ChapterList, Preview, dialogs
+    └── ...              Library, Workspace, Editor, ChapterList, PageStrip, Preview, dialogs
 ```
+
+A comic page records which chapter it belongs to, and the book keeps its pages
+stored in reading order, grouped by chapter — every edit re-groups them, so the
+stored order and the chapter each page claims can never disagree. That is what
+lets page numbers, the exported script, and the preview all read straight down
+the one array.
 
 The editor stores chapter bodies as TipTap HTML. Rather than have four
 exporters each re-interpret markup, `blocks.ts` parses that HTML once into a
@@ -183,7 +204,8 @@ npm run build
 ```
 
 The unit tests cover the parts worth pinning down — the HTML parser, chapter
-numbering, word counts, Markdown generation, backup import validation, panel
+numbering, the page grouping and the rule for stepping a page between chapters,
+migrating a chapter written before pages existed, word counts, Markdown generation, backup import validation, panel
 layout geometry, the artwork crop maths, the drawing board's flood fill and
-colour parsing, and image generation's prompt shaping, size selection, and every
+colour parsing, that a page break the writer made really opens a new sheet, and image generation's prompt shaping, size selection, and every
 failure path (run against a stubbed provider, so no API key or spend is needed).

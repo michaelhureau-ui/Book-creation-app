@@ -49,7 +49,11 @@ export function buildMarkdown(book: Book): string {
       ? `Chapter ${n}. ${chapter.title || 'Untitled'}`
       : chapter.title || 'Untitled'
     parts.push(`\n## ${heading}`)
-    const blocks = parseBlocks(chapter.content).map(blockToMd).filter(Boolean)
+    // Markdown has no page, so the chapter's pages simply run together.
+    const blocks = chapter.pages
+      .flatMap((page) => parseBlocks(page.content))
+      .map(blockToMd)
+      .filter(Boolean)
     parts.push(blocks.length ? blocks.join('\n\n') : '*This chapter is empty.*')
   }
   return parts.join('\n\n') + '\n'

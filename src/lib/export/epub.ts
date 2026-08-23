@@ -55,12 +55,18 @@ ${body}
 }
 
 function chapterXhtml(book: Book, chapter: Chapter, number: number | undefined): string {
-  const blocks = parseBlocks(chapter.content)
+  // An e-book reflows, so a page the writer made is a break hint rather than a
+  // fixed sheet: readers that paginate honour it, readers that scroll ignore it.
+  const written = chapter.pages
+    .map((prosePage) => parseBlocks(prosePage.content).map(blockToXhtml).join('\n'))
+    .filter((html) => html.length > 0)
   const body = [
     '<section epub:type="chapter">',
     number ? `<p class="chapter-number">Chapter ${number}</p>` : '',
     `<h1>${esc(chapter.title || 'Untitled')}</h1>`,
-    blocks.length ? blocks.map(blockToXhtml).join('\n') : '<p class="empty">This chapter is empty.</p>',
+    written.length
+      ? written.join('\n<div class="page-break"></div>\n')
+      : '<p class="empty">This chapter is empty.</p>',
     '</section>',
   ].filter(Boolean).join('\n')
   return page(chapter.title || 'Untitled', body, book.language)
@@ -72,6 +78,7 @@ h2, h3, h4 { font-weight: normal; margin: 1.4em 0 .5em; }
 p { margin: 0 0 .2em; text-indent: 1.3em; text-align: justify; }
 p:first-of-type, h1 + p, h2 + p, h3 + p, blockquote p { text-indent: 0; }
 .chapter-number { text-align: center; text-indent: 0; letter-spacing: .18em; font-size: .8em; text-transform: uppercase; color: #8b857c; }
+.page-break { page-break-before: always; break-before: page; }
 .empty { text-align: center; text-indent: 0; font-style: italic; color: #8b857c; }
 blockquote { margin: 1em 2em; font-style: italic; color: #4a4640; }
 pre { background: #f3efe7; padding: .8em; overflow-x: auto; font-size: .85em; }

@@ -15,9 +15,9 @@ describe('bookStats', () => {
   it('totals words across chapters and counts only body chapters', () => {
     const book = createBook('Test')
     book.chapters = [
-      { ...createChapter('front', 'Preface'), content: '<p>one two three</p>' },
-      { ...createChapter('chapter', 'One'), content: '<p>four five</p>' },
-      { ...createChapter('chapter', 'Two'), content: '<p>six</p>' },
+      createChapter('front', 'Preface', '<p>one two three</p>'),
+      createChapter('chapter', 'One', '<p>four five</p>'),
+      createChapter('chapter', 'Two', '<p>six</p>'),
     ]
     const stats = bookStats(book)
     expect(stats.words).toBe(6)
@@ -32,7 +32,7 @@ describe('bookStats', () => {
 
   it('never rounds a non-empty book down to zero minutes', () => {
     const book = createBook('Short')
-    book.chapters = [{ ...createChapter('chapter', 'One'), content: '<p>a few words here</p>' }]
+    book.chapters = [createChapter('chapter', 'One', '<p>a few words here</p>')]
     expect(bookStats(book).readingMinutes).toBe(1)
   })
 })

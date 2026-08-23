@@ -66,6 +66,6 @@ describe('duplicateBook', () => {
     expect(copy.title).toBe('Original (copy)')
     expect(copy.chapters).toHaveLength(original.chapters.length)
     expect(copy.chapters[0].id).not.toBe(original.chapters[0].id)
-    expect(copy.chapters[0].content).toBe(original.chapters[0].content)
+    expect(copy.chapters[0].pages[0].content).toBe(original.chapters[0].pages[0].content)
   })
 })

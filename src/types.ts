@@ -1,12 +1,29 @@
 export type ChapterKind = 'chapter' | 'front' | 'back'
 
+/**
+ * A chapter is written as one or more pages. Each page holds its own body and
+ * starts a fresh printed page on export, which is how a writer decides where
+ * the breaks fall rather than leaving it to the typesetter.
+ */
+export interface ProsePage {
+  id: string
+  /** TipTap HTML. */
+  content: string
+}
+
 export interface Chapter {
   id: string
   /** 'front' = preface/foreword (unnumbered), 'chapter' = numbered body, 'back' = appendix/afterword. */
   kind: ChapterKind
   title: string
-  /** TipTap HTML. */
-  content: string
+  /** Never empty: a chapter always has at least one page. */
+  pages: ProsePage[]
+  /**
+   * Books written before chapters had pages stored one body here. It is read
+   * once, folded into `pages`, and never written again.
+   * @deprecated
+   */
+  content?: string
   createdAt: number
   updatedAt: number
 }
@@ -54,6 +71,12 @@ export interface Page {
   title: string
   layout: PageLayoutId
   panels: Panel[]
+  /**
+   * The chapter this page is filed under, or null while it is loose. Pages are
+   * stored in reading order and always grouped by chapter, so this and the
+   * order in `Book.pages` never disagree.
+   */
+  chapterId: string | null
 }
 
 export type PageLayoutId =
@@ -70,7 +93,7 @@ export interface Book {
   description: string
   language: string
   cover: Cover
-  /** Used when kind is 'prose'. */
+  /** Prose bodies. A graphic novel uses these too, as headings over its pages. */
   chapters: Chapter[]
   /** Used when kind is 'graphic'. */
   pages: Page[]
@@ -84,7 +107,7 @@ export interface BookStats {
   /** Minutes, at 230 wpm. */
   readingMinutes: number
   chapters: number
-  /** Graphic novels only. */
+  /** Drawn pages in a graphic novel, written pages in a novel. */
   pages: number
   panels: number
   artworkPlaced: number

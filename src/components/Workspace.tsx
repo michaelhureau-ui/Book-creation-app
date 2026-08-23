@@ -3,6 +3,7 @@ import clsx from 'clsx'
 import { Icons } from '@/components/Icons'
 import { Editor } from '@/components/Editor'
 import { ChapterList } from '@/components/ChapterList'
+import { PageStrip } from '@/components/PageStrip'
 import { DetailsPanel } from '@/components/DetailsPanel'
 import { Preview } from '@/components/Preview'
 import { ExportDialog } from '@/components/ExportDialog'
@@ -10,7 +11,7 @@ import { GraphicWorkspace } from '@/components/graphic/GraphicWorkspace'
 import { Drawer, EmptyState } from '@/components/ui'
 import { useMediaQuery } from '@/lib/useNarrow'
 import type { TrimId } from '@/lib/graphic/render'
-import { useOpenBook, useOpenChapter, useStore } from '@/lib/store'
+import { useOpenBook, useOpenChapter, useOpenProsePage, useStore } from '@/lib/store'
 import { chapterNumbers } from '@/lib/book'
 import { bookStats, chapterWords, formatCount } from '@/lib/stats'
 
@@ -37,8 +38,10 @@ function SaveIndicator() {
 export function Workspace() {
   const book = useOpenBook()
   const chapter = useOpenChapter()
+  const prosePage = useOpenProsePage()
   const closeBook = useStore((s) => s.closeBook)
   const updateChapter = useStore((s) => s.updateChapter)
+  const updateProsePage = useStore((s) => s.updateProsePage)
   const addChapter = useStore((s) => s.addChapter)
 
   const [panel, setPanel] = useState<'details' | 'preview' | 'export' | null>(null)
@@ -141,15 +144,22 @@ export function Workspace() {
                 />
                 <span className={clsx('shrink-0 text-xs text-ink-faint')}>
                   {numbers.get(chapter.id) ? `Chapter ${numbers.get(chapter.id)} · ` : ''}
+                  {chapter.pages.length > 1 ? `${chapter.pages.length} pages · ` : ''}
                   {formatCount(words)} words
                 </span>
               </div>
+              <PageStrip book={book} chapter={chapter} openPageId={prosePage?.id ?? null} />
               <div className="min-h-0 flex-1">
-                <Editor
-                  key={chapter.id}
-                  chapter={chapter}
-                  onChange={(html) => updateChapter(book.id, chapter.id, { content: html })}
-                />
+                {prosePage && (
+                  <Editor
+                    key={prosePage.id}
+                    page={prosePage}
+                    placeholder={chapter.pages.length > 1
+                      ? `Page ${chapter.pages.findIndex((p) => p.id === prosePage.id) + 1} of this chapter…`
+                      : 'Start writing this chapter…'}
+                    onChange={(html) => updateProsePage(book.id, chapter.id, prosePage.id, html)}
+                  />
+                )}
               </div>
             </>
           ) : (

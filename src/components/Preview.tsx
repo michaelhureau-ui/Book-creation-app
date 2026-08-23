@@ -93,8 +93,13 @@ function ComicPage({ page, trim }: { page: Page; trim: TrimId }) {
 
 export function Preview({ book, trim = 'comic', onClose }: { book: Book; trim?: TrimId; onClose: () => void }) {
   const numbers = useMemo(() => chapterNumbers(book.chapters), [book.chapters])
+  // One entry per written page, so the preview shows the same breaks the PDF
+  // and the .docx will print.
   const parsed = useMemo(
-    () => book.chapters.map((c) => ({ chapter: c, blocks: parseBlocks(c.content) })),
+    () => book.chapters.map((c) => ({
+      chapter: c,
+      sheets: c.pages.map((page) => ({ id: page.id, blocks: parseBlocks(page.content) })),
+    })),
     [book.chapters],
   )
   const stats = useMemo(() => bookStats(book), [book])
@@ -143,32 +148,61 @@ export function Preview({ book, trim = 'comic', onClose }: { book: Book; trim?: 
         )}
 
         {/* Body */}
-        {book.kind === 'graphic' && book.pages.map((page, i) => (
-          <div key={page.id}>
-            <p className="mb-1.5 text-center text-xs uppercase tracking-[0.18em] text-ink-faint">
-              Page {i + 1}{page.title ? ` — ${page.title}` : ''}
-            </p>
-            <ComicPage page={page} trim={trim} />
-          </div>
-        ))}
-
-        {book.kind === 'prose' && parsed.map(({ chapter, blocks }) => (
-          <section key={chapter.id} className="mx-auto mb-8 max-w-[34rem] rounded-lg bg-paper-raised px-8 py-12 shadow-card">
-            {numbers.get(chapter.id) && (
-              <p className="text-center text-xs uppercase tracking-[0.2em] text-ink-faint">
-                Chapter {numbers.get(chapter.id)}
+        {book.kind === 'graphic' && book.pages.map((page, i) => {
+          // Pages are stored grouped by chapter, so a change of chapter here is
+          // where its title card belongs.
+          const chapter = book.chapters.find((c) => c.id === page.chapterId)
+          const opensChapter = !!chapter && book.pages[i - 1]?.chapterId !== page.chapterId
+          return (
+            <div key={page.id}>
+              {opensChapter && (
+                <p className="mb-4 mt-8 border-t border-rule pt-6 text-center font-serif text-lg font-semibold text-ink first:mt-0">
+                  {chapter.title || 'Untitled chapter'}
+                </p>
+              )}
+              <p className="mb-1.5 text-center text-xs uppercase tracking-[0.18em] text-ink-faint">
+                Page {i + 1}{page.title ? ` — ${page.title}` : ''}
               </p>
-            )}
-            <h2 className="mb-8 mt-2 text-center font-serif text-2xl font-semibold text-ink">
-              {chapter.title || 'Untitled'}
-            </h2>
-            <div className="book-page">
-              {blocks.length === 0
-                ? <p className="text-center italic text-ink-faint" style={{ textIndent: 0 }}>This chapter is empty.</p>
-                : blocks.map((block, i) => <BlockView key={i} block={block} />)}
+              <ComicPage page={page} trim={trim} />
             </div>
-          </section>
-        ))}
+          )
+        })}
+
+        {book.kind === 'prose' && parsed.map(({ chapter, sheets }) => {
+          const empty = sheets.every((sheet) => sheet.blocks.length === 0)
+          return sheets.map((sheet, sheetIndex) => (
+            <section
+              key={sheet.id}
+              className="mx-auto mb-8 max-w-[34rem] rounded-lg bg-paper-raised px-8 py-12 shadow-card"
+            >
+              {sheetIndex === 0 ? (
+                <>
+                  {numbers.get(chapter.id) && (
+                    <p className="text-center text-xs uppercase tracking-[0.2em] text-ink-faint">
+                      Chapter {numbers.get(chapter.id)}
+                    </p>
+                  )}
+                  <h2 className="mb-8 mt-2 text-center font-serif text-2xl font-semibold text-ink">
+                    {chapter.title || 'Untitled'}
+                  </h2>
+                </>
+              ) : (
+                <p className="mb-6 text-center text-xs uppercase tracking-[0.2em] text-ink-faint">
+                  {chapter.title || 'Untitled'} · page {sheetIndex + 1}
+                </p>
+              )}
+              <div className="book-page">
+                {sheet.blocks.length === 0
+                  ? (
+                    <p className="text-center italic text-ink-faint" style={{ textIndent: 0 }}>
+                      {empty ? 'This chapter is empty.' : 'This page is empty.'}
+                    </p>
+                  )
+                  : sheet.blocks.map((block, i) => <BlockView key={i} block={block} />)}
+              </div>
+            </section>
+          ))
+        })}
 
         {book.kind === 'prose' && book.chapters.length === 0 && (
           <p className="py-10 text-center text-sm text-ink-faint">Add a chapter to see it here.</p>

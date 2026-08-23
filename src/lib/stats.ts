@@ -9,8 +9,9 @@ export function countWords(text: string): number {
   return trimmed.split(/\s+/).length
 }
 
+/** Every page of a chapter, flattened — page breaks read as paragraph breaks. */
 export function chapterText(chapter: Chapter): string {
-  return blocksText(parseBlocks(chapter.content))
+  return chapter.pages.map((page) => blocksText(parseBlocks(page.content))).join('\n\n').trim()
 }
 
 export function chapterWords(chapter: Chapter): number {
@@ -45,7 +46,12 @@ export function bookStats(book: Book): BookStats {
     characters,
     readingMinutes: Math.max(words > 0 ? 1 : 0, Math.round(words / WORDS_PER_MINUTE)),
     chapters: book.chapters.filter((c) => c.kind === 'chapter').length,
-    pages: book.pages.length,
+    // A novel counts its written pages; a graphic novel counts its drawn ones.
+    // A graphic novel's chapters carry an unused body page each, so summing
+    // both would report more pages than the book has.
+    pages: book.kind === 'graphic'
+      ? book.pages.length
+      : book.chapters.reduce((n, c) => n + c.pages.length, 0),
     panels,
     artworkPlaced,
   }

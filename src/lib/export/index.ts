@@ -1,5 +1,5 @@
 import type { Book } from '@/types'
-import { slugify } from '@/lib/book'
+import { normalizeBook, slugify } from '@/lib/book'
 import type { PdfOptions } from '@/lib/export/pdf-options'
 import type { ComicOptions } from '@/lib/export/comic-options'
 import { exportAssets, importAssets } from '@/lib/graphic/assets'
@@ -85,6 +85,8 @@ function readPage(raw: Partial<Page> | undefined, i: number): Page {
     id: typeof raw?.id === 'string' ? raw.id : `page-${i}`,
     title: typeof raw?.title === 'string' ? raw.title : `Page ${i + 1}`,
     layout,
+    // A chapter id that names nothing is dropped when the book is normalised.
+    chapterId: typeof raw?.chapterId === 'string' ? raw.chapterId : null,
     panels: panels.slice(0, wanted),
   }
 }
@@ -108,7 +110,7 @@ export function bookFromJson(text: string): Book {
     throw new Error('That file does not look like a Bookwright backup.')
   }
   const now = Date.now()
-  return {
+  return normalizeBook({
     id: typeof book.id === 'string' ? book.id : '',
     kind: book.kind === 'graphic' ? 'graphic' : 'prose',
     title: book.title,
@@ -124,6 +126,13 @@ export function bookFromJson(text: string): Book {
       id: typeof c?.id === 'string' ? c.id : `imported-${i}`,
       kind: c?.kind === 'front' || c?.kind === 'back' ? c.kind : 'chapter',
       title: typeof c?.title === 'string' ? c.title : `Chapter ${i + 1}`,
+      // Both shapes are accepted: pages, or the single body older files carry.
+      pages: (Array.isArray(c?.pages) ? c.pages : [])
+        .filter((page) => typeof page?.content === 'string')
+        .map((page, pi) => ({
+          id: typeof page?.id === 'string' ? page.id : `imported-${i}-${pi}`,
+          content: page.content as string,
+        })),
       content: typeof c?.content === 'string' ? c.content : '',
       createdAt: typeof c?.createdAt === 'number' ? c.createdAt : now,
       updatedAt: typeof c?.updatedAt === 'number' ? c.updatedAt : now,
@@ -131,7 +140,7 @@ export function bookFromJson(text: string): Book {
     pages: pages.map(readPage),
     createdAt: typeof book.createdAt === 'number' ? book.createdAt : now,
     updatedAt: now,
-  }
+  })
 }
 
 /** Artwork carried in a backup file, restored under the new book's id. */

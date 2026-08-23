@@ -110,14 +110,18 @@ export async function buildDocx(book: Book): Promise<Blob> {
       spacing: { after: 360 },
       children: [new TextRun({ text: chapter.title || 'Untitled', bold: true, size: 36 })],
     }))
-    const blocks = parseBlocks(chapter.content)
-    if (blocks.length === 0) {
+    const written = chapter.pages.map((prosePage) => parseBlocks(prosePage.content))
+    if (written.every((blocks) => blocks.length === 0)) {
       children.push(new Paragraph({
         alignment: AlignmentType.CENTER,
         children: [new TextRun({ text: 'This chapter is empty.', italics: true, color: '8B857C' })],
       }))
     }
-    for (const block of blocks) children.push(...blockToParagraphs(block))
+    written.forEach((blocks, i) => {
+      // Each page the writer made opens a fresh sheet, as it does in the PDF.
+      if (i > 0) children.push(new Paragraph({ children: [new PageBreak()] }))
+      for (const block of blocks) children.push(...blockToParagraphs(block))
+    })
   }
 
   const doc = new Document({

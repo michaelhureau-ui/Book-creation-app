@@ -310,19 +310,24 @@ function render(book: Book, opts: PdfOptions, tocNumbers: Map<string, number> | 
     }
     ts.paragraph(plainRun(chapter.title || 'Untitled', { bold: true }), { size: size * 1.7, leading: size * 2, align: 'center', spaceAfter: 26 })
 
-    const blocks = parseBlocks(chapter.content)
-    if (blocks.length === 0) {
+    const written = chapter.pages.map((prosePage) => parseBlocks(prosePage.content))
+    if (written.every((blocks) => blocks.length === 0)) {
       ts.paragraph(plainRun('This chapter is empty.', { italic: true }), { size, leading, align: 'center', color: [139, 133, 124] })
     }
 
-    let previousWasText = false
-    for (const block of blocks) {
-      const pageBefore = ts.page
-      drawBlock(ts, block, size, leading, previousWasText)
-      previousWasText = block.type === 'paragraph'
-      // Any page this chapter spills onto carries its title in the header.
-      for (let p = pageBefore; p <= ts.page; p++) headers.set(p, chapter.title || bookTitle(book))
-    }
+    written.forEach((blocks, pageIndex) => {
+      // The writer's own page breaks: every page after the first opens a fresh
+      // sheet even when there is room left on the one before.
+      if (pageIndex > 0) ts.ensureFreshPage()
+      let previousWasText = false
+      for (const block of blocks) {
+        const pageBefore = ts.page
+        drawBlock(ts, block, size, leading, previousWasText)
+        previousWasText = block.type === 'paragraph'
+        // Any page this chapter spills onto carries its title in the header.
+        for (let p = pageBefore; p <= ts.page; p++) headers.set(p, chapter.title || bookTitle(book))
+      }
+    })
     for (let p = starts.get(chapter.id)!; p <= ts.page; p++) {
       if (!headers.has(p)) headers.set(p, chapter.title || bookTitle(book))
     }

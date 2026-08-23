@@ -152,7 +152,14 @@ export function buildScript(book: Book): string {
     '',
   ].filter((l, i) => l !== '' || i > 2)
 
+  let currentChapter: string | null | undefined
   book.pages.forEach((page: Page, pageIndex) => {
+    // Pages are stored grouped by chapter, so a change of chapter is a heading.
+    if (page.chapterId !== currentChapter) {
+      currentChapter = page.chapterId
+      const chapter = book.chapters.find((c) => c.id === page.chapterId)
+      if (chapter) lines.push('', '', `CHAPTER: ${(chapter.title || 'Untitled').toUpperCase()}`)
+    }
     lines.push('', '='.repeat(60), `PAGE ${pageIndex + 1}${page.title ? ` — ${page.title}` : ''}`,
       `Layout: ${layoutOf(page.layout).label} (${page.panels.length} ${page.panels.length === 1 ? 'panel' : 'panels'})`,
       '='.repeat(60))

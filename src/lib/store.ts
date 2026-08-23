@@ -1,8 +1,12 @@
 import { create } from 'zustand'
 import type {
   Balloon, BalloonKind, Book, BookKind, Chapter, ChapterKind, Cover, Page, PageLayoutId, Panel,
+  ProsePage,
 } from '@/types'
-import { createBook, createChapter, duplicateBook, move, newId } from '@/lib/book'
+import {
+  createBook, createChapter, createProsePage, duplicateBook, groupPages, move, newId, normalizeBook,
+  stepPage,
+} from '@/lib/book'
 import { applyLayout, createBalloon, createPage, orphanedAssets, remapAssets } from '@/lib/graphic/pages'
 import { duplicateAssets, removeAsset } from '@/lib/graphic/assets'
 import * as db from '@/lib/db'
@@ -16,6 +20,8 @@ interface State {
   /** null = library view. */
   openBookId: string | null
   openChapterId: string | null
+  /** Novels: the page of the open chapter that the editor is showing. */
+  openProsePageId: string | null
   /** Graphic novels: the page being edited, and the selected panel within it. */
   openPageId: string | null
   selectedPanelId: string | null
@@ -26,6 +32,7 @@ interface State {
   openBook: (id: string) => void
   closeBook: () => void
   selectChapter: (id: string) => void
+  selectProsePage: (id: string) => void
   selectPage: (id: string) => void
   selectPanel: (id: string | null) => void
   selectBalloon: (id: string | null) => void
@@ -39,15 +46,22 @@ interface State {
   updateCover: (id: string, patch: Partial<Cover>) => void
 
   addChapter: (bookId: string, kind?: ChapterKind) => void
-  updateChapter: (bookId: string, chapterId: string, patch: Partial<Omit<Chapter, 'id'>>) => void
+  updateChapter: (bookId: string, chapterId: string, patch: Partial<Omit<Chapter, 'id' | 'pages'>>) => void
   removeChapter: (bookId: string, chapterId: string) => void
   moveChapter: (bookId: string, from: number, to: number) => void
 
-  addPage: (bookId: string, layout?: PageLayoutId) => void
+  addProsePage: (bookId: string, chapterId: string) => void
+  updateProsePage: (bookId: string, chapterId: string, pageId: string, content: string) => void
+  removeProsePage: (bookId: string, chapterId: string, pageId: string) => void
+  moveProsePage: (bookId: string, chapterId: string, from: number, to: number) => void
+
+  addPage: (bookId: string, layout?: PageLayoutId, chapterId?: string | null) => void
   updatePage: (bookId: string, pageId: string, patch: Partial<Omit<Page, 'id'>>) => void
   setPageLayout: (bookId: string, pageId: string, layout: PageLayoutId) => void
   removePage: (bookId: string, pageId: string) => void
-  movePage: (bookId: string, from: number, to: number) => void
+  /** Nudge a page one step through the book; crossing a chapter edge refiles it. */
+  movePage: (bookId: string, pageId: string, delta: -1 | 1) => void
+  setPageChapter: (bookId: string, pageId: string, chapterId: string | null) => void
 
   updatePanel: (bookId: string, pageId: string, panelId: string, patch: Partial<Omit<Panel, 'id' | 'balloons'>>) => void
   setPanelArt: (bookId: string, pageId: string, panelId: string, assetId: string) => void
@@ -82,13 +96,18 @@ function scheduleSave(book: Book, set: (partial: Partial<State>) => void): void 
 }
 
 export const useStore = create<State>((set, get) => {
-  /** Apply a change to one book, stamp updatedAt, and queue the save. */
+  /**
+   * Apply a change to one book, stamp updatedAt, and queue the save. Every
+   * edit re-groups the graphic pages, so no action has to remember on its own
+   * that pages are stored in chapter order.
+   */
   const patchBook = (id: string, fn: (book: Book) => Book): void => {
     let saved: Book | null = null
     set({
       books: get().books.map((b) => {
         if (b.id !== id) return b
-        saved = { ...fn(b), updatedAt: Date.now() }
+        const next = fn(b)
+        saved = { ...next, pages: groupPages(next.chapters, next.pages), updatedAt: Date.now() }
         return saved
       }),
     })
@@ -101,6 +120,7 @@ export const useStore = create<State>((set, get) => {
     loadError: null,
     openBookId: null,
     openChapterId: null,
+    openProsePageId: null,
     openPageId: null,
     selectedPanelId: null,
     selectedBalloonId: null,
@@ -108,7 +128,7 @@ export const useStore = create<State>((set, get) => {
 
     load: async () => {
       try {
-        const books = await db.loadAllBooks()
+        const books = (await db.loadAllBooks()).map(normalizeBook)
         set({ books, loading: false, loadError: null })
       } catch {
         set({
@@ -123,23 +143,31 @@ export const useStore = create<State>((set, get) => {
       set({
         openBookId: id,
         openChapterId: book?.chapters[0]?.id ?? null,
+        openProsePageId: book?.chapters[0]?.pages[0]?.id ?? null,
         openPageId: book?.pages[0]?.id ?? null,
         selectedPanelId: null,
         selectedBalloonId: null,
       })
     },
     closeBook: () => set({
-      openBookId: null, openChapterId: null, openPageId: null,
+      openBookId: null, openChapterId: null, openProsePageId: null, openPageId: null,
       selectedPanelId: null, selectedBalloonId: null,
     }),
-    selectChapter: (id) => set({ openChapterId: id }),
+    selectChapter: (id) => {
+      const book = get().books.find((b) => b.id === get().openBookId)
+      const chapter = book?.chapters.find((c) => c.id === id)
+      // Opening a chapter always lands on its first page, never on a page id
+      // left over from the chapter before.
+      set({ openChapterId: id, openProsePageId: chapter?.pages[0]?.id ?? null })
+    },
+    selectProsePage: (id) => set({ openProsePageId: id }),
     selectPage: (id) => set({ openPageId: id, selectedPanelId: null, selectedBalloonId: null }),
     selectPanel: (id) => set({ selectedPanelId: id, selectedBalloonId: null }),
     selectBalloon: (id) => set({ selectedBalloonId: id }),
 
     addBook: async (title, author, kind = 'prose') => {
       const book = createBook(title?.trim() || 'Untitled book', author?.trim() ?? '', kind)
-      if (kind === 'graphic') book.pages = [createPage('four-grid', 'Page 1')]
+      if (kind === 'graphic') book.pages = [createPage('four-grid', 'Page 1', null)]
       set({ books: [book, ...get().books] })
       await db.saveBook(book).catch(() => set({ saveState: 'error' }))
       return book.id
@@ -170,13 +198,22 @@ export const useStore = create<State>((set, get) => {
     importBook: async (book) => {
       // Always re-key an imported book so importing the same file twice keeps
       // both copies instead of overwriting the first.
-      const fresh: Book = {
+      const chapterIds = new Map(book.chapters.map((c) => [c.id, newId()]))
+      const fresh: Book = normalizeBook({
         ...book,
         id: newId(),
-        chapters: book.chapters.map((c) => ({ ...c, id: newId() })),
-        pages: book.pages.map((page) => ({ ...page, id: newId() })),
+        chapters: book.chapters.map((c) => ({
+          ...c,
+          id: chapterIds.get(c.id)!,
+          pages: (c.pages ?? []).map((page) => ({ ...page, id: newId() })),
+        })),
+        pages: book.pages.map((page) => ({
+          ...page,
+          id: newId(),
+          chapterId: page.chapterId ? chapterIds.get(page.chapterId) ?? null : null,
+        })),
         updatedAt: Date.now(),
-      }
+      })
       set({ books: [fresh, ...get().books] })
       await db.saveBook(fresh).catch(() => set({ saveState: 'error' }))
       return fresh.id
@@ -194,7 +231,7 @@ export const useStore = create<State>((set, get) => {
         const at = firstBody === -1 ? b.chapters.length : firstBody
         return { ...b, chapters: [...b.chapters.slice(0, at), chapter, ...b.chapters.slice(at)] }
       })
-      set({ openChapterId: chapter.id })
+      set({ openChapterId: chapter.id, openProsePageId: chapter.pages[0].id })
     },
 
     updateChapter: (bookId, chapterId, patch) =>
@@ -211,17 +248,74 @@ export const useStore = create<State>((set, get) => {
       if (get().openChapterId === chapterId) {
         const remaining = book.chapters.filter((c) => c.id !== chapterId)
         const next = remaining[Math.min(index, remaining.length - 1)]
-        set({ openChapterId: next?.id ?? null })
+        set({ openChapterId: next?.id ?? null, openProsePageId: next?.pages[0]?.id ?? null })
       }
     },
 
     moveChapter: (bookId, from, to) =>
       patchBook(bookId, (b) => ({ ...b, chapters: move(b.chapters, from, to) })),
 
+    // ── Pages inside a chapter ─────────────────────────────────────────────
+    addProsePage: (bookId, chapterId) => {
+      const page = createProsePage()
+      patchBook(bookId, (b) => ({
+        ...b,
+        chapters: b.chapters.map((c) =>
+          c.id === chapterId ? { ...c, pages: [...c.pages, page], updatedAt: Date.now() } : c),
+      }))
+      set({ openChapterId: chapterId, openProsePageId: page.id })
+    },
+
+    updateProsePage: (bookId, chapterId, pageId, content) =>
+      patchBook(bookId, (b) => ({
+        ...b,
+        chapters: b.chapters.map((c) =>
+          c.id !== chapterId ? c : {
+            ...c,
+            updatedAt: Date.now(),
+            pages: c.pages.map((page) => (page.id === pageId ? { ...page, content } : page)),
+          }),
+      })),
+
+    removeProsePage: (bookId, chapterId, pageId) => {
+      const chapter = get().books.find((b) => b.id === bookId)?.chapters.find((c) => c.id === chapterId)
+      // A chapter always keeps at least one page; emptying the last one is the
+      // only sensible reading of "delete" when it is the only page left.
+      if (!chapter) return
+      const index = chapter.pages.findIndex((page) => page.id === pageId)
+      if (index === -1) return
+      const last = chapter.pages.length === 1
+      const replacement = last ? createProsePage() : null
+      patchBook(bookId, (b) => ({
+        ...b,
+        chapters: b.chapters.map((c) =>
+          c.id !== chapterId ? c : {
+            ...c,
+            updatedAt: Date.now(),
+            pages: replacement ? [replacement] : c.pages.filter((page) => page.id !== pageId),
+          }),
+      }))
+      if (get().openProsePageId === pageId) {
+        const next = replacement
+          ?? chapter.pages.filter((page) => page.id !== pageId)[Math.min(index, chapter.pages.length - 2)]
+        set({ openProsePageId: next?.id ?? null })
+      }
+    },
+
+    moveProsePage: (bookId, chapterId, from, to) =>
+      patchBook(bookId, (b) => ({
+        ...b,
+        chapters: b.chapters.map((c) =>
+          c.id === chapterId ? { ...c, pages: move(c.pages, from, to), updatedAt: Date.now() } : c),
+      })),
+
     // ── Graphic novel pages ────────────────────────────────────────────────
-    addPage: (bookId, layout = 'four-grid') => {
+    addPage: (bookId, layout = 'four-grid', chapterId = null) => {
       const book = get().books.find((b) => b.id === bookId)
-      const page = createPage(layout, `Page ${(book?.pages.length ?? 0) + 1}`)
+      const filed = chapterId && book?.chapters.some((c) => c.id === chapterId) ? chapterId : null
+      const page = createPage(layout, `Page ${(book?.pages.length ?? 0) + 1}`, filed)
+      // Appending is enough: re-grouping drops the page at the end of its own
+      // chapter's run rather than at the end of the book.
       patchBook(bookId, (b) => ({ ...b, pages: [...b.pages, page] }))
       set({ openPageId: page.id, selectedPanelId: null, selectedBalloonId: null })
     },
@@ -272,8 +366,14 @@ export const useStore = create<State>((set, get) => {
       }
     },
 
-    movePage: (bookId, from, to) =>
-      patchBook(bookId, (b) => ({ ...b, pages: move(b.pages, from, to) })),
+    movePage: (bookId, pageId, delta) =>
+      patchBook(bookId, (b) => ({ ...b, pages: stepPage(b.chapters, b.pages, pageId, delta) })),
+
+    setPageChapter: (bookId, pageId, chapterId) =>
+      patchBook(bookId, (b) => ({
+        ...b,
+        pages: b.pages.map((p) => (p.id === pageId ? { ...p, chapterId } : p)),
+      })),
 
     updatePanel: (bookId, pageId, panelId, patch) =>
       patchBook(bookId, (b) => ({
@@ -388,5 +488,15 @@ export function useOpenChapter(): Chapter | null {
   return useStore((s) => {
     const book = s.books.find((b) => b.id === s.openBookId)
     return book?.chapters.find((c) => c.id === s.openChapterId) ?? null
+  })
+}
+
+/** The page of the open chapter the editor is on — its first page by default. */
+export function useOpenProsePage(): ProsePage | null {
+  return useStore((s) => {
+    const book = s.books.find((b) => b.id === s.openBookId)
+    const chapter = book?.chapters.find((c) => c.id === s.openChapterId)
+    if (!chapter) return null
+    return chapter.pages.find((page) => page.id === s.openProsePageId) ?? chapter.pages[0] ?? null
   })
 }

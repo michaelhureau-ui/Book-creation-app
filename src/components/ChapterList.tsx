@@ -69,6 +69,7 @@ function ChapterRow({
             </span>
             <span className="mt-0.5 block text-xs text-ink-faint">
               {words === 0 ? 'Empty' : `${formatCount(words)} words`}
+              {chapter.pages.length > 1 && ` · ${chapter.pages.length} pages`}
             </span>
           </button>
         )}

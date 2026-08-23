@@ -17,6 +17,7 @@ export function GraphicWorkspace({ book, trim, onTrimChange }: {
 }) {
   const page = useOpenPage()
   const addPage = useStore((s) => s.addPage)
+  const setPageChapter = useStore((s) => s.setPageChapter)
   const selectPanel = useStore((s) => s.selectPanel)
   const selectedPanelId = useStore((s) => s.selectedPanelId)
   const pageIndex = book.pages.findIndex((p) => p.id === page?.id)
@@ -77,6 +78,23 @@ export function GraphicWorkspace({ book, trim, onTrimChange }: {
                 >
                   <Icons.Pencil className="h-3.5 w-3.5" /> Panel
                 </button>
+              )}
+              {book.chapters.length > 0 && (
+                <label className="hidden items-center gap-2 text-xs text-ink-faint sm:flex">
+                  Chapter
+                  <select
+                    className="max-w-[10rem] rounded-md border border-rule-strong bg-paper-raised px-2 py-1 text-xs text-ink focus:border-accent focus:outline-none"
+                    value={page.chapterId ?? ''}
+                    onChange={(e) => setPageChapter(book.id, page.id, e.target.value || null)}
+                  >
+                    <option value="">Not in a chapter</option>
+                    {book.chapters.map((chapter, i) => (
+                      <option key={chapter.id} value={chapter.id}>
+                        {i + 1}. {chapter.title || 'Untitled chapter'}
+                      </option>
+                    ))}
+                  </select>
+                </label>
               )}
               <label className="hidden items-center gap-2 text-xs text-ink-faint sm:flex">
                 Page size

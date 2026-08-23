@@ -4,7 +4,7 @@ import StarterKit from '@tiptap/starter-kit'
 import { Placeholder } from '@tiptap/extensions'
 import clsx from 'clsx'
 import { Icons } from '@/components/Icons'
-import type { Chapter } from '@/types'
+import type { ProsePage } from '@/types'
 
 interface ToolbarButton {
   icon: (props: { className?: string }) => JSX.Element
@@ -94,22 +94,26 @@ function Toolbar({ editor }: { editor: TipTapEditor }) {
 }
 
 /**
- * Mounted with `key={chapter.id}` by the workspace, so switching chapters
- * builds a fresh editor rather than trying to swap document state underneath
- * an existing one.
+ * Mounted with `key={page.id}` by the workspace, so turning to another page —
+ * or another chapter — builds a fresh editor rather than trying to swap
+ * document state underneath an existing one.
  */
-export function Editor({ chapter, onChange }: { chapter: Chapter; onChange: (html: string) => void }) {
+export function Editor({ page, placeholder, onChange }: {
+  page: ProsePage
+  placeholder?: string
+  onChange: (html: string) => void
+}) {
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
-      Placeholder.configure({ placeholder: 'Start writing this chapter…' }),
+      Placeholder.configure({ placeholder: placeholder ?? 'Start writing this chapter…' }),
     ],
-    content: chapter.content,
+    content: page.content,
     editorProps: { attributes: { class: 'tiptap min-h-[60vh] focus:outline-none' } },
     onUpdate: ({ editor: e }) => onChange(e.getHTML()),
   })
 
-  // Flush the final keystrokes when the chapter unmounts mid-edit.
+  // Flush the final keystrokes when the page unmounts mid-edit.
   useEffect(() => () => { if (editor) onChange(editor.getHTML()) },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [editor])
