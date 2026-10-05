@@ -209,6 +209,31 @@ export function chooseGoogleTextModel(models: GoogleModel[]): string | null {
   return pool.sort().reverse()[0]
 }
 
+/**
+ * The human-readable reason a provider gave, if it gave one. Both Google and
+ * OpenAI nest it under `error.message`.
+ *
+ * A story that fails with nothing but a status number is a story nobody can
+ * fix: not the writer, and not whoever has to debug it afterwards. So the
+ * reason is carried through to the app instead of being swallowed.
+ */
+export function providerReason(body: string): string {
+  try {
+    const parsed = JSON.parse(body) as { error?: { message?: string } }
+    const message = parsed?.error?.message
+    if (typeof message === 'string' && message.trim()) return message.trim().slice(0, 200)
+  } catch { /* the body was not JSON; fall through */ }
+  const plain = body.trim()
+  return plain && plain.length <= 200 ? plain : ''
+}
+
+/** Attach the provider's own words to an error that only has a status number. */
+export function withReason(error: StoryError, body: string): StoryError {
+  if (error.code !== 'provider_error') return error
+  const reason = providerReason(body)
+  return reason ? { ...error, message: `${error.message.replace(/\s*Try again in a moment\.$/, '')} ${reason}` } : error
+}
+
 /** The text of the first candidate, across the parts Google may split it into. */
 export function extractGoogleText(body: unknown): string {
   const json = body as {
@@ -249,33 +274,61 @@ type Written =
   | { ok: true; text: string }
   | { ok: false; status: number; error: StoryError }
 
+function googlePayload(prompt: string, maxTokens: number, askForJson: boolean): string {
+  return JSON.stringify({
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      // Not every model accepts being told to answer in JSON. The reply is
+      // parsed out of surrounding prose anyway, so this is a preference.
+      ...(askForJson ? { responseMimeType: 'application/json' } : {}),
+      temperature: 0.9,
+      maxOutputTokens: maxTokens,
+    },
+  })
+}
+
 async function writeWithGoogle(
   key: string, prompt: string, maxTokens: number, signal: AbortSignal,
 ): Promise<Written> {
   const model = await resolveGoogleModel(key, signal)
-  const res = await fetch(`${GOOGLE_BASE}/models/${model}:generateContent`, {
+  const url = `${GOOGLE_BASE}/models/${model}:generateContent`
+  const send = (askForJson: boolean): Promise<Response> => fetch(url, {
     method: 'POST',
     headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ parts: [{ text: prompt }] }],
-      generationConfig: {
-        responseMimeType: 'application/json',
-        temperature: 0.9,
-        maxOutputTokens: maxTokens,
-      },
-    }),
+    body: googlePayload(prompt, maxTokens, askForJson),
     signal,
   })
 
+  let res = await send(true)
+  let body = ''
+
   if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    return { ok: false, status: res.status, error: describeProviderFailure(res.status, body) }
+    body = await res.text().catch(() => '')
+    // A 400 we cannot otherwise explain is a complaint about the request, and
+    // asking for JSON is the least standard thing in it. Try again plainly
+    // before giving up — but not when the key, the quota or a refusal is the
+    // real problem, where a second attempt only wastes the writer's time.
+    if (res.status === 400 && describeProviderFailure(res.status, body).code === 'provider_error') {
+      res = await send(false)
+      body = res.ok ? '' : await res.text().catch(() => '')
+    }
+  }
+
+  if (!res.ok) {
+    // Reaches the deployment's runtime logs. The key is never part of this.
+    console.error(`[generate-story] ${model} answered ${res.status}: ${body.slice(0, 500)}`)
+    return {
+      ok: false,
+      status: res.status,
+      error: withReason(describeProviderFailure(res.status, body), body),
+    }
   }
 
   const text = extractGoogleText(await res.json().catch(() => null))
   if (!text) {
     // A refusal comes back as a 200 with no text, so say what happened rather
     // than letting it flatten into a generic provider error.
+    console.error(`[generate-story] ${model} answered 200 with no text`)
     return {
       ok: false,
       status: 502,
@@ -308,7 +361,12 @@ async function writeWithOpenAi(
 
   if (!res.ok) {
     const body = await res.text().catch(() => '')
-    return { ok: false, status: res.status, error: describeProviderFailure(res.status, body) }
+    console.error(`[generate-story] openai answered ${res.status}: ${body.slice(0, 500)}`)
+    return {
+      ok: false,
+      status: res.status,
+      error: withReason(describeProviderFailure(res.status, body), body),
+    }
   }
 
   const data = await res.json().catch(() => null) as {

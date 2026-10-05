@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import handler, {
-  describeProviderFailure as describeStoryFailure, resetGoogleTextModelCache,
+  describeProviderFailure as describeStoryFailure, providerReason, resetGoogleTextModelCache,
+  withReason,
 } from '../../../api/generate-story'
 import { describeProviderFailure as describeImageFailure } from '../../../api/generate-image'
 
@@ -152,6 +153,86 @@ describe('generate-story endpoint', () => {
     const urls = fetchMock.mock.calls.map((c) => String(c[0]))
     expect(urls.some((u) => u.includes('/models?'))).toBe(false)
     expect(urls.some((u) => u.includes('gemini-pinned'))).toBe(true)
+  })
+})
+
+describe('a failure the provider explained', () => {
+  it('takes the reason out of the body both providers use', () => {
+    expect(providerReason(JSON.stringify({ error: { message: 'Json mode is not enabled for models/x' } })))
+      .toBe('Json mode is not enabled for models/x')
+  })
+
+  it('falls back to a short plain-text body, and gives up on a long one', () => {
+    expect(providerReason('Bad Request')).toBe('Bad Request')
+    expect(providerReason('x'.repeat(500))).toBe('')
+  })
+
+  it('adds the reason only where the message is just a status number', () => {
+    const generic = { code: 'provider_error', message: 'The story service failed (400). Try again in a moment.' } as const
+    expect(withReason(generic, JSON.stringify({ error: { message: 'Unknown name "foo"' } })).message)
+      .toBe('The story service failed (400). Unknown name "foo"')
+    // A message that already says what to do is left alone.
+    const keyed = { code: 'not_configured', message: 'The story service rejected the API key.' } as const
+    expect(withReason(keyed, JSON.stringify({ error: { message: 'noise' } }))).toEqual(keyed)
+  })
+})
+
+describe('a 400 that cannot otherwise be explained', () => {
+  const original = process.env.GOOGLE_API_KEY
+  beforeEach(() => { process.env.GOOGLE_API_KEY = 'test-key'; resetGoogleTextModelCache() })
+  afterEach(() => {
+    if (original === undefined) delete process.env.GOOGLE_API_KEY
+    else process.env.GOOGLE_API_KEY = original
+    vi.unstubAllGlobals()
+  })
+
+  /** Answers 400 while asked for JSON, and succeeds once asked plainly. */
+  function stubFussyModel(): ReturnType<typeof vi.fn> {
+    const fetchMock = vi.fn(async (url: string, init?: { body?: string }) => {
+      if (String(url).includes('/models?')) {
+        return jsonResponse({ models: [{ name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] }] })
+      }
+      if (String(init?.body ?? '').includes('responseMimeType')) {
+        return jsonResponse({ error: { message: 'Json mode is not enabled for this model' } }, 400)
+      }
+      return jsonResponse({ candidates: [{ content: { parts: [{ text: '{"title":"T","chapters":[{"title":"One","summary":"S"}]}' }] } }] })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    return fetchMock
+  }
+
+  it('asks again plainly, and gets the story', async () => {
+    const fetchMock = stubFussyModel()
+    const { res, out } = makeRes()
+    await handler({ method: 'POST', body: { idea: 'a fox at sea' } }, res)
+    expect(out.code).toBe(200)
+    expect(out.body).toMatchObject({ outline: { title: 'T' } })
+    const bodies = fetchMock.mock.calls.map((c) => String((c[1] as { body?: string } | undefined)?.body ?? ''))
+    expect(bodies.filter((b) => b.includes('responseMimeType'))).toHaveLength(1)
+    expect(bodies.filter((b) => b.includes('maxOutputTokens') && !b.includes('responseMimeType'))).toHaveLength(1)
+  })
+
+  it('does not waste a second attempt on a key the provider rejected', async () => {
+    const fetchMock = vi.fn(async (url: string) =>
+      String(url).includes('/models?')
+        ? jsonResponse({ models: [{ name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] }] })
+        : jsonResponse({ error: { message: 'API key not valid. Please pass a valid API key.' } }, 400))
+    vi.stubGlobal('fetch', fetchMock)
+    const { res, out } = makeRes()
+    await handler({ method: 'POST', body: { idea: 'a fox at sea' } }, res)
+    expect(errorOf(out.body).code).toBe('not_configured')
+    // One list call and one generate call: no retry.
+    expect(fetchMock.mock.calls).toHaveLength(2)
+  })
+
+  it('tells the writer what the provider actually objected to', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) =>
+      String(url).includes('/models?')
+        ? jsonResponse({ models: [{ name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] }] })
+        : jsonResponse({ error: { message: 'Unknown name "responseMimeType" at generation_config' } }, 400)))
+    const { res, out } = makeRes()
+    await handler({ method: 'POST', body: { idea: 'a fox at sea' } }, res)
+    expect(errorOf(out.body).message).toContain('Unknown name')
   })
 })
 
