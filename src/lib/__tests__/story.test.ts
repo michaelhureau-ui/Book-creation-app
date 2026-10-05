@@ -88,7 +88,7 @@ describe('reading what the model sent back', () => {
 
   it('reads an outline, and still gives a chapter when the model sent none', () => {
     expect(readOutline({ title: 'Deep Water', subtitle: 'A tale', chapters: [{ title: 'One', summary: 'S' }] }))
-      .toEqual({ title: 'Deep Water', subtitle: 'A tale', chapters: [{ title: 'One', summary: 'S' }] })
+      .toEqual({ title: 'Deep Water', subtitle: 'A tale', cast: [], chapters: [{ title: 'One', summary: 'S' }] })
     expect(readOutline({ title: 'T' }).chapters).toHaveLength(1)
     expect(readOutline(null).title).toBe('Untitled book')
   })
@@ -162,7 +162,7 @@ describe('turning a written comic into pages', () => {
 
 describe('assembling the book', () => {
   it('starts an empty book carrying the title and subtitle', () => {
-    const book = startBook({ title: 'Deep Water', subtitle: 'A tale', chapters: [] }, 'graphic')
+    const book = startBook({ title: 'Deep Water', subtitle: 'A tale', cast: [], chapters: [] }, 'graphic')
     expect(book).toMatchObject({ title: 'Deep Water', subtitle: 'A tale', kind: 'graphic' })
     expect(book.chapters).toEqual([])
     expect(book.pages).toEqual([])

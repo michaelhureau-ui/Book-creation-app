@@ -8,7 +8,7 @@ import {
   drawPanels, NOT_CONFIGURED_HELP, STALE_BUILD_HELP, StoryFailed, writeStory,
   type DrawingProgress, type StoryProgress,
 } from '@/lib/story/generate'
-import { MAX_IDEA_LENGTH } from '@/lib/story/limits'
+import { MAX_IDEA_LENGTH, MAX_SHOW_LENGTH } from '@/lib/story/limits'
 import { STYLES, type ArtStyle } from '@/lib/graphic/image-prompt'
 import type { BookKind } from '@/types'
 import type { StoryLength } from '@/lib/story/story'
@@ -32,6 +32,11 @@ const AUDIENCES: { id: string; label: string }[] = [
   { id: 'adult', label: 'Grown-ups' },
 ]
 
+const SOURCES: { id: 'own' | 'show'; label: string; hint: string }[] = [
+  { id: 'own', label: 'My own idea', hint: 'Anything you like.' },
+  { id: 'show', label: 'A show or film', hint: 'A new story set in its world.' },
+]
+
 const EXAMPLES = [
   'a fox who runs a lost property office at the bottom of the sea',
   'two sisters who find a door in the orchard that only opens in the rain',
@@ -45,6 +50,8 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
   const openBook = useStore((s) => s.openBook)
   const books = useStore((s) => s.books)
 
+  const [source, setSource] = useState<'own' | 'show'>('own')
+  const [show, setShow] = useState('')
   const [idea, setIdea] = useState('')
   const [kind, setKind] = useState<BookKind>('prose')
   const [length, setLength] = useState<StoryLength>('short')
@@ -62,6 +69,8 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
 
   const busy = progress !== null
   const chosen = LENGTHS.find((l) => l.id === length) ?? LENGTHS[0]
+  const named = source === 'show' ? show.trim() : ''
+  const ready = source === 'show' ? named.length > 0 : idea.trim().length > 0
 
   const finish = (): void => {
     if (startedRef.current) openBook(startedRef.current)
@@ -86,7 +95,7 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
           return id
         },
         onChapter: (id, chapter, pages) => addStoryChapter(id, chapter, pages),
-      }, controller.signal)
+      }, controller.signal, named)
 
       if (kind === 'graphic' && draw && !controller.signal.aborted) {
         setProgress({ done: 1, total: 1, label: 'Drawing the pictures…' })
@@ -135,7 +144,7 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
           <button className="btn btn-outline" onClick={() => { abortRef.current?.abort(); finish() }}>
             {busy ? (partial > 0 ? 'Stop and keep it' : 'Stop') : 'Cancel'}
           </button>
-          <button className="btn btn-primary" disabled={busy || !idea.trim()} onClick={() => void write()}>
+          <button className="btn btn-primary" disabled={busy || !ready} onClick={() => void write()}>
             {busy ? 'Writing…' : <><Icons.Sparkle className="h-4 w-4" /> Write the story</>}
           </button>
         </>
@@ -143,7 +152,61 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
     >
       <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); void write() }}>
         <div>
-          <label className="label" htmlFor="story-idea">What is the story about?</label>
+          <span className="label">Where does it come from?</span>
+          <div className="grid grid-cols-2 gap-2">
+            {SOURCES.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                disabled={busy}
+                className={clsx(
+                  'rounded-lg border p-2.5 text-left transition-colors disabled:opacity-50',
+                  source === option.id
+                    ? 'border-accent bg-accent-soft/60'
+                    : 'border-rule hover:border-rule-strong hover:bg-paper-sunk',
+                )}
+                onClick={() => setSource(option.id)}
+              >
+                <span className="block text-sm font-semibold text-ink">{option.label}</span>
+                <span className="block text-xs text-ink-faint">{option.hint}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {source === 'show' && (
+          <div>
+            <label className="label" htmlFor="story-show">Which show or film?</label>
+            <div className="flex items-center gap-1.5">
+              <input
+                id="story-show"
+                autoFocus
+                className="field py-2"
+                maxLength={MAX_SHOW_LENGTH}
+                value={show}
+                disabled={busy}
+                placeholder="How to Train Your Dragon"
+                onChange={(e) => setShow(e.target.value)}
+              />
+              <MicButton
+                label="Say which show or film"
+                disabled={busy}
+                className="shrink-0"
+                onText={(said) => setShow((was) => (was ? `${was} ${said}` : said))}
+              />
+            </div>
+            <p className="mt-1.5 text-xs text-ink-faint">
+              It writes a new story of your own set in that world, with its own characters
+              described so they look the same on every page. The pictures will not be exact
+              copies of the real ones — the picture service will not draw those.
+            </p>
+          </div>
+        )}
+
+        <div>
+          <label className="label" htmlFor="story-idea">
+            {source === 'show' ? 'What should happen in it? (optional)' : 'What is the story about?'}
+          </label>
           <div className="flex items-start gap-1.5">
             <textarea
               id="story-idea"
@@ -153,7 +216,9 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
               maxLength={MAX_IDEA_LENGTH}
               value={idea}
               disabled={busy}
-              placeholder="a fox who runs a lost property office at the bottom of the sea"
+              placeholder={source === 'show'
+                ? 'they find a cave nobody has been inside'
+                : 'a fox who runs a lost property office at the bottom of the sea'}
               onChange={(e) => setIdea(e.target.value)}
             />
             <div className="shrink-0 pt-1">
@@ -164,7 +229,7 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
               />
             </div>
           </div>
-          {!idea.trim() && !busy && (
+          {!idea.trim() && !busy && source === 'own' && (
             <div className="mt-1.5 flex flex-wrap gap-1">
               <span className="text-xs text-ink-faint">Try:</span>
               {EXAMPLES.map((example) => (

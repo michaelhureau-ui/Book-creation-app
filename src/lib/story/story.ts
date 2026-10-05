@@ -13,9 +13,16 @@ export interface OutlineChapter {
   summary: string
 }
 
+/** One character, described so every panel can be drawn the same way. */
+export interface CastMember {
+  name: string
+  look: string
+}
+
 export interface Outline {
   title: string
   subtitle: string
+  cast: CastMember[]
   chapters: OutlineChapter[]
 }
 
@@ -33,7 +40,15 @@ function list(value: unknown): unknown[] {
 }
 
 export function readOutline(raw: unknown): Outline {
-  const body = (raw ?? {}) as { title?: unknown; subtitle?: unknown; chapters?: unknown }
+  const body = (raw ?? {}) as {
+    title?: unknown; subtitle?: unknown; cast?: unknown; chapters?: unknown
+  }
+  const cast = list(body.cast)
+    .map((c) => {
+      const entry = (c ?? {}) as { name?: unknown; look?: unknown }
+      return { name: str(entry.name), look: str(entry.look) }
+    })
+    .filter((c) => c.name.length > 0)
   const chapters = list(body.chapters)
     .map((c, i) => {
       const entry = (c ?? {}) as { title?: unknown; summary?: unknown }
@@ -43,6 +58,7 @@ export function readOutline(raw: unknown): Outline {
   return {
     title: str(body.title, 'Untitled book'),
     subtitle: str(body.subtitle),
+    cast,
     chapters: chapters.length > 0 ? chapters : [{ title: 'Chapter One', summary: '' }],
   }
 }

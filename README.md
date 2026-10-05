@@ -59,6 +59,18 @@ and the better part of half an hour, so **each chapter is saved as it lands**:
 stopping early, closing the tab, or losing the connection leaves a shorter book
 in the library rather than nothing at all.
 
+**From a show or a film.** Instead of your own idea you can name something you
+love — "How to Train Your Dragon" — and get a new story of your own set in that
+world. It is not a retelling of an episode, and the pictures are not copies of
+the real artwork: an image model refuses or mangles a named character anyway,
+and that is not something to publish. What it does instead is the part that
+actually makes a comic look like a comic — the plan comes back with a **cast**,
+each character described in plain words, and every panel's drawing brief repeats
+those descriptions. Each panel is drawn on its own with no memory of the one
+before, so a brief saying only "Rell looks up" draws a different Rell every
+time; carrying the description into every panel is what keeps a character the
+same on page forty as on page one.
+
 For a graphic novel there is also **Draw the pictures too**, which fills in every
 panel from the brief the story wrote for it. A book this long is hundreds of
 pictures and an image allowance runs out long before that, so it stops at the
@@ -275,7 +287,9 @@ The unit tests cover the parts worth pinning down — the HTML parser, chapter
 numbering, the page grouping and the rule for stepping a page between chapters,
 migrating a chapter written before pages existed, word counts, Markdown generation, backup import validation, panel
 layout geometry, the artwork crop maths, the drawing board's flood fill and
-colour parsing, the page counts each length promises, what lands on each printed sheet, the drawing pass (that it
+colour parsing, the page counts each length promises, what lands on each printed sheet, that a
+story set in a show asks for its cast in plain words and carries them into every
+panel, the drawing pass (that it
 stops dead on a spent allowance, skips a single refused picture, and keeps what
 it drew), balloon fitting (that a long speech stays inside the panel it is
 drawn in, and a sound effect shrinks rather than splitting), reading a written

@@ -5,6 +5,8 @@
  */
 export const MAX_IDEA_LENGTH = 1200
 
+export const MAX_SHOW_LENGTH = 120
+
 export const STORY_LENGTHS = ['short', 'medium', 'long'] as const
 
 export const STORY_AUDIENCES = ['children', 'middle', 'teen', 'adult'] as const
