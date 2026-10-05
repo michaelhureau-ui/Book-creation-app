@@ -183,8 +183,11 @@ function clampTo(value: number, lo: number, hi: number): number {
 }
 
 function baseFontSize(kind: BalloonKind, boxW: number, scale: number): number {
+  // A sound effect is display lettering, so it is sized from its own box rather
+  // than capped like speech — but it sat loud enough to swallow the panel it
+  // was meant to punctuate.
   return kind === 'sfx'
-    ? Math.max(20 * scale, boxW * 0.19)
+    ? Math.max(15 * scale, boxW * 0.14)
     : Math.max(11 * scale, Math.min(boxW * 0.115, 15 * scale))
 }
 

@@ -177,8 +177,10 @@ export function buildScript(book: Book): string {
       }
       for (const balloon of panel.balloons) {
         const label = BALLOON_LABELS[balloon.kind].toUpperCase()
+        const who = balloon.speaker?.trim()
         const text = balloon.text.trim().replace(/\n/g, '\n      ')
-        lines.push(`  ${label}: ${text}`)
+        // A letterer needs to know who is speaking, not only what is said.
+        lines.push(`  ${who ? `${label} (${who})` : label}: ${text}`)
       }
     })
   })

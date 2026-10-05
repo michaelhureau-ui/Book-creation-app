@@ -45,6 +45,8 @@ export interface Balloon {
   id: string
   kind: BalloonKind
   text: string
+  /** Who says it, where that is known — printed in the exported script. */
+  speaker?: string
   /** Position and width as a fraction (0–1) of the panel it sits in. */
   x: number
   y: number

@@ -17,7 +17,15 @@ describe('a book from a show or film', () => {
 
   it('will plan from a show alone, with no idea of its own', () => {
     const prompt = buildOutlinePrompt('', 'graphic', 'short', 'children', 'Dragon Riders')
-    expect(prompt).toContain('world of "Dragon Riders"')
+    expect(prompt).toContain('set in "Dragon Riders"')
+    expect(prompt).toContain('real characters')
+  })
+
+  it('tells its own story again, or a new one, as asked', () => {
+    expect(buildOutlinePrompt('', 'graphic', 'short', 'children', 'Dragon Riders', true))
+      .toContain('own story again')
+    expect(buildOutlinePrompt('', 'graphic', 'short', 'children', 'Dragon Riders', false))
+      .toContain('new adventure')
   })
 
   it('still needs something to go on', () => {
@@ -26,16 +34,15 @@ describe('a book from a show or film', () => {
   })
 
   /**
-   * Writing a story set in a show is ordinary play; copying its artwork is not,
-   * and an image model will refuse a named character anyway. So the plan is
-   * asked for its own descriptions, and those are what the panels are drawn
-   * from.
+   * An image model refuses or mangles a character asked for by name, so the
+   * drawings are made from description — which has to be a true description to
+   * be any use at all.
    */
-  it('asks for the cast in plain words rather than by how the real one is drawn', () => {
+  it('asks how the characters really look, so a drawing can be recognised', () => {
     const prompt = buildOutlinePrompt('a new adventure', 'graphic', 'short', 'children', 'Dragon Riders')
-    expect(prompt).toContain('in your own plain words')
+    expect(prompt).toContain('how each character really looks')
+    expect(prompt).toContain('be recognised')
     expect(prompt).toContain('"cast"')
-    expect(prompt).toContain('new story of our own')
   })
 
   it('says nothing about a show when the story is the writer’s own', () => {
@@ -48,7 +55,24 @@ describe('a book from a show or film', () => {
   it('carries the cast into every chapter, so the drawings match page to page', () => {
     const prompt = buildChapterPrompt('x', 'graphic', 'short', 'middle', OUTLINE, 0, 'Dragon Riders')
     expect(prompt).toContain('Rell — a small red fox in an oilskin coat')
-    expect(prompt).toContain('repeat their description from the cast')
+    expect(prompt).toContain('only by their description from the cast')
+  })
+
+  /**
+   * The panel brief goes straight to the image model, which refuses a famous
+   * name outright — so the brief must carry the description and nothing else.
+   */
+  it('keeps names, and what they are from, out of the drawing brief', () => {
+    const prompt = buildChapterPrompt('x', 'graphic', 'short', 'middle', OUTLINE, 0, 'Dragon Riders')
+    expect(prompt).toContain('never by name')
+    expect(prompt).toContain('never by naming what they are from')
+  })
+
+  it('asks which side of the panel each speaker is on', () => {
+    const prompt = buildChapterPrompt('x', 'graphic', 'short', 'middle', OUTLINE, 0)
+    expect(prompt).toContain('"from"')
+    expect(prompt).toContain('left, middle or right')
+    expect(prompt).toContain('"speaker"')
   })
 
   it('tells a panel to describe who is in it even when there is no cast', () => {

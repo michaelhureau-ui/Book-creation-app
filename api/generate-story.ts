@@ -71,25 +71,6 @@ export function cleanShow(show: string): string {
   return show.replace(/\s+/g, ' ').trim().slice(0, MAX_SHOW_LENGTH)
 }
 
-/**
- * Writing a story set in a show someone loves is ordinary play. Copying that
- * show's artwork is not, and an image model will refuse or mangle a named
- * character anyway — so the plan describes the cast in its own words, and the
- * panels are drawn from those descriptions. That is also what makes the
- * pictures match each other page to page, which is the part that actually
- * makes a comic look like a comic.
- */
-function showNote(show: string): string[] {
-  const named = cleanShow(show)
-  if (!named) return []
-  return [
-    `Set it in the world of "${named}" — its places, its creatures, the way it feels.`,
-    'Write a new story of our own there, not a retelling of an episode.',
-    'Describe every character in your own plain words rather than by naming how',
-    'the real one is drawn, since the pictures are drawn from those descriptions.',
-  ]
-}
-
 /** Who the book is for. The model is told plainly; it shapes vocabulary too. */
 export const AUDIENCES: Record<string, string> = {
   children: 'children aged about 6 to 9. Simple sentences, warm and playful, nothing frightening or upsetting',
@@ -102,12 +83,38 @@ export function audienceNote(audience: string): string {
   return AUDIENCES[audience] ?? AUDIENCES.middle
 }
 
+/**
+ * A story set in something someone loves, written with its real characters and
+ * places — either a new adventure of theirs or its own story told again.
+ *
+ * The pictures are the part that cannot simply be asked for. An image model
+ * refuses or mangles a character named outright, so the drawings are made from
+ * description instead: the plan is asked to say how each character actually
+ * looks, accurately enough to be recognised, and the panel briefs carry that
+ * description rather than the name.
+ */
+function showNote(show: string, retell: boolean): string[] {
+  const named = cleanShow(show)
+  if (!named) return []
+  return [
+    `This book is set in "${named}", with its real characters, places and creatures.`,
+    retell
+      ? 'Tell its own story again as this book, in your own words and scenes.'
+      : 'Tell a new adventure of theirs, somewhere in that world.',
+    'In the cast, say how each character really looks in it — age, build, hair,',
+    'clothes, colouring, markings, anything always true of them — in plain visual',
+    'words, close enough that someone drawing from the description alone would',
+    'be recognised.',
+  ]
+}
+
 function shapeOf(kind: StoryKind, length: StoryLength): { chapters: number; pages: number } {
   return SHAPES[kind][length] ?? SHAPES[kind].medium
 }
 
 export function buildOutlinePrompt(
-  idea: string, kind: StoryKind, length: StoryLength, audience: string, show?: string,
+  idea: string, kind: StoryKind, length: StoryLength, audience: string,
+  show?: string, retell = false,
 ): string {
   const cleaned = cleanIdea(idea)
   const named = cleanShow(show ?? '')
@@ -116,7 +123,7 @@ export function buildOutlinePrompt(
   const form = kind === 'graphic' ? 'graphic novel' : 'novel'
   return [
     cleaned ? `Plan a ${form} from this idea: "${cleaned}".` : `Plan a ${form}.`,
-    ...showNote(show ?? ''),
+    ...showNote(show ?? '', retell),
     `Write it for ${audienceNote(audience)}.`,
     `Plan exactly ${shape.chapters} ${shape.chapters === 1 ? 'chapter' : 'chapters'}.`,
     'Give the book a real title — not the idea repeated back — and a short subtitle.',
@@ -147,6 +154,7 @@ export function buildChapterPrompt(
   },
   index: number,
   show?: string,
+  retell = false,
 ): string {
   const shape = shapeOf(kind, length)
   const chapters = outline.chapters ?? []
@@ -154,7 +162,7 @@ export function buildChapterPrompt(
   const cast = (outline.cast ?? []).filter((c) => c?.name)
   const story = [
     `The book is "${outline.title ?? 'Untitled'}", from the idea: "${cleanIdea(idea)}".`,
-    ...showNote(show ?? ''),
+    ...showNote(show ?? '', retell),
     `Write it for ${audienceNote(audience)}.`,
     cast.length > 0
       ? `The cast: ${cast.map((c) => `${c.name} — ${c.look ?? ''}`).join('; ')}.`
@@ -174,15 +182,23 @@ export function buildChapterPrompt(
       // Each panel is drawn on its own, with no memory of the one before, so a
       // brief that says only "Rell looks up" draws a different Rell every time.
       cast.length > 0
-        ? 'Every panel is drawn separately by someone who has not read the rest, so'
-          + ' whenever a character is in a panel, repeat their description from the cast'
-          + ' inside that panel\'s "art" — do not refer to them by name alone.'
-        : 'Describe who is in the panel and what they look like every time, since each'
-          + ' panel is drawn separately by someone who has not seen the others.',
+        ? 'Every panel is drawn separately by someone who has not read the book and'
+          + ' does not know these characters, so inside "art" refer to each character'
+          + ' only by their description from the cast — never by name, and never by'
+          + ' naming what they are from. Repeat the description every time.'
+        : 'Inside "art" describe who is in the panel and what they look like every'
+          + ' time, since each panel is drawn separately by someone who has not seen'
+          + ' the others.',
+      // A tail aimed at nobody is what makes a drawn page look wrong.
+      'Give every balloon a "speaker" — who says it — and a "from": where that',
+      'character is standing in the panel, one of left, middle or right, so the',
+      'balloon can point at them. Use "off" for a caption or a voice from outside',
+      'the panel. Keep the same character on the same side within a panel.',
       'Give a panel up to two balloons. A balloon kind is one of',
       'speech, thought, caption, shout, sfx. Keep each balloon under 25 words so it fits.',
       'Reply with JSON only, in exactly this shape:',
-      '{"pages":[{"title":"","panels":[{"art":"","balloons":[{"kind":"speech","text":""}]}]}]}',
+      '{"pages":[{"title":"","panels":[{"art":"","balloons":'
+      + '[{"kind":"speech","speaker":"","from":"left","text":""}]}]}]}',
     ].join(' ')
   }
 
@@ -540,6 +556,7 @@ export default async function handler(req: Req, res: Res): Promise<void> {
   let payload: {
     stage?: unknown; idea?: unknown; kind?: unknown; length?: unknown
     audience?: unknown; outline?: unknown; index?: unknown; show?: unknown
+    retell?: unknown
   }
   try {
     payload = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body ?? {}) as never
@@ -554,12 +571,13 @@ export default async function handler(req: Req, res: Res): Promise<void> {
     payload.length === 'short' || payload.length === 'long' ? payload.length : 'medium'
   const audience = typeof payload.audience === 'string' ? payload.audience : 'middle'
   const show = typeof payload.show === 'string' ? payload.show : ''
+  const retell = payload.retell === true
   const outlining = payload.stage !== 'chapter'
 
   let prompt: string
   try {
     if (outlining) {
-      prompt = buildOutlinePrompt(idea, kind, length, audience, show)
+      prompt = buildOutlinePrompt(idea, kind, length, audience, show, retell)
     } else {
       const outline = (payload.outline ?? {}) as {
         title?: string
@@ -571,7 +589,7 @@ export default async function handler(req: Req, res: Res): Promise<void> {
         fail(res, 400, { code: 'unreadable', message: 'The plan for this book is missing.' })
         return
       }
-      prompt = buildChapterPrompt(idea, kind, length, audience, outline, index, show)
+      prompt = buildChapterPrompt(idea, kind, length, audience, outline, index, show, retell)
     }
   } catch {
     fail(res, 400, { code: 'empty_idea', message: 'Say what the story is about, or name a show or film.' })

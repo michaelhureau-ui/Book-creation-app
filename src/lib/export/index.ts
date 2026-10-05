@@ -55,6 +55,7 @@ function readBalloon(raw: Partial<Balloon> | undefined, i: number): Balloon {
     id: typeof raw?.id === 'string' ? raw.id : `balloon-${i}`,
     kind: kinds.includes(raw?.kind as BalloonKind) ? (raw!.kind as BalloonKind) : 'speech',
     text: typeof raw?.text === 'string' ? raw.text : '',
+    speaker: typeof raw?.speaker === 'string' ? raw.speaker : undefined,
     x: num(raw?.x, 0.5),
     y: num(raw?.y, 0.25),
     width: num(raw?.width, 0.4),

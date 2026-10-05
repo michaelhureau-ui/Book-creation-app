@@ -132,7 +132,7 @@ describe('turning a written comic into pages', () => {
     const [page] = readGraphicPages(written)
     expect(page.title).toBe('The Harbour')
     expect(page.panels[0].note).toBe('A fox waits in the rain.')
-    expect(page.panels[1].balloons.map((b) => b.kind)).toEqual(['sfx', 'thought'])
+    expect(page.panels[1].balloons.map((b) => b.balloon.kind)).toEqual(['sfx', 'thought'])
     expect(page.panels[2].balloons).toEqual([])
   })
 
@@ -141,7 +141,7 @@ describe('turning a written comic into pages', () => {
       pages: [{ panels: [{ art: 'a', balloons: [{ kind: 'speech', text: '' }, { kind: 'wat', text: 'Hi' }] }] }],
     })
     expect(page.panels[0].balloons).toHaveLength(1)
-    expect(page.panels[0].balloons[0].kind).toBe('speech')
+    expect(page.panels[0].balloons[0].balloon.kind).toBe('speech')
   })
 
   it('fills the layout out with empty panels and files the page under its chapter', () => {

@@ -60,16 +60,22 @@ stopping early, closing the tab, or losing the connection leaves a shorter book
 in the library rather than nothing at all.
 
 **From a show or a film.** Instead of your own idea you can name something you
-love — "How to Train Your Dragon" — and get a new story of your own set in that
-world. It is not a retelling of an episode, and the pictures are not copies of
-the real artwork: an image model refuses or mangles a named character anyway,
-and that is not something to publish. What it does instead is the part that
-actually makes a comic look like a comic — the plan comes back with a **cast**,
-each character described in plain words, and every panel's drawing brief repeats
-those descriptions. Each panel is drawn on its own with no memory of the one
-before, so a brief saying only "Rell looks up" draws a different Rell every
-time; carrying the description into every panel is what keeps a character the
-same on page forty as on page one.
+love — "How to Train Your Dragon" — and get a book set there, with its real
+characters and places: either a new adventure of theirs or its own story told
+again, whichever you pick.
+
+The pictures cannot simply be asked for, because an image model refuses or
+mangles a character named outright. So the drawings are made from description
+instead: the plan comes back with a **cast**, each character described as they
+actually look — age, build, hair, clothes, markings — closely enough to be
+recognised, and every panel's brief carries that description rather than the
+name. They will be close rather than exact, and the form says so where you type
+the title rather than leaving you to find out after fifty pages.
+
+That same cast is what makes any generated comic hold together. Each panel is
+drawn on its own with no memory of the one before, so a brief saying only "Rell
+looks up" draws a different Rell every time; repeating the description in every
+panel is what keeps a character the same on page forty as on page one.
 
 For a graphic novel there is also **Draw the pictures too**, which fills in every
 panel from the brief the story wrote for it. A book this long is hundreds of
@@ -197,6 +203,14 @@ already there — so you can pick a drawing back up, or ink over a photo.
 downscaled on import (a phone photo is far larger than a panel needs) and
 cover-fitted to the frame, with zoom and pan to choose the crop.
 
+**Balloons point at whoever is speaking.** A written comic says who says each
+line and where they are standing — left, middle or right — so the balloon leans
+toward them and its tail reaches down to their head and shoulders. Two people
+talking end up on their own sides of the panel rather than stacked in a corner
+with tails aimed at nothing, which is the single thing that makes a drawn page
+look wrong even when everything else is right. A caption, a sound effect or a
+voice from off-panel has nobody to point at, and is drawn without a tail.
+
 **Letter it.** Five kinds of balloon — speech, thought, caption, shout, and
 sound effect — each drawn properly: a tapered tail off the balloon's own
 outline, a scalloped cloud with a bubble trail for thoughts, a starburst for a
@@ -288,8 +302,9 @@ numbering, the page grouping and the rule for stepping a page between chapters,
 migrating a chapter written before pages existed, word counts, Markdown generation, backup import validation, panel
 layout geometry, the artwork crop maths, the drawing board's flood fill and
 colour parsing, the page counts each length promises, what lands on each printed sheet, that a
-story set in a show asks for its cast in plain words and carries them into every
-panel, the drawing pass (that it
+story set in a show asks for its cast by how they really look and keeps names
+out of the drawing briefs, that a balloon's tail reaches toward the speaker and
+that a caption never grows one, the drawing pass (that it
 stops dead on a spent allowance, skips a single refused picture, and keeps what
 it drew), balloon fitting (that a long speech stays inside the panel it is
 drawn in, and a sound effect shrinks rather than splitting), reading a written

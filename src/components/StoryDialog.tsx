@@ -52,6 +52,7 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
 
   const [source, setSource] = useState<'own' | 'show'>('own')
   const [show, setShow] = useState('')
+  const [retell, setRetell] = useState(false)
   const [idea, setIdea] = useState('')
   const [kind, setKind] = useState<BookKind>('prose')
   const [length, setLength] = useState<StoryLength>('short')
@@ -95,7 +96,7 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
           return id
         },
         onChapter: (id, chapter, pages) => addStoryChapter(id, chapter, pages),
-      }, controller.signal, named)
+      }, controller.signal, named, retell)
 
       if (kind === 'graphic' && draw && !controller.signal.aborted) {
         setProgress({ done: 1, total: 1, label: 'Drawing the pictures…' })
@@ -195,10 +196,28 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
                 onText={(said) => setShow((was) => (was ? `${was} ${said}` : said))}
               />
             </div>
+            <div className="mt-2 grid grid-cols-2 gap-1">
+              {([[false, 'A new adventure'], [true, 'Its own story again']] as const).map(([value, label]) => (
+                <button
+                  key={label}
+                  type="button"
+                  disabled={busy}
+                  className={clsx(
+                    'rounded-md border px-2 py-1.5 text-xs transition-colors disabled:opacity-50',
+                    retell === value
+                      ? 'border-accent bg-accent-soft/60 font-semibold text-accent-deep'
+                      : 'border-rule text-ink-soft hover:bg-paper-sunk',
+                  )}
+                  onClick={() => setRetell(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
             <p className="mt-1.5 text-xs text-ink-faint">
-              It writes a new story of your own set in that world, with its own characters
-              described so they look the same on every page. The pictures will not be exact
-              copies of the real ones — the picture service will not draw those.
+              It uses the real characters and places. The pictures are drawn from written
+              descriptions of how they look, so they will be close but not exact — the
+              picture service refuses a character asked for by name.
             </p>
           </div>
         )}

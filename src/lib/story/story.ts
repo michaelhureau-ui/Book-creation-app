@@ -92,6 +92,18 @@ export function readProsePages(raw: unknown): string[] {
 
 const BALLOON_KINDS: BalloonKind[] = ['speech', 'thought', 'caption', 'shout', 'sfx']
 
+/** Where in the panel the speaker is standing. */
+export type SpeakerSide = 'left' | 'middle' | 'right' | 'off'
+
+const SIDES: SpeakerSide[] = ['left', 'middle', 'right', 'off']
+
+/** What the tail reaches for: a character's head and shoulders, not their feet. */
+const TAIL_X: Record<Exclude<SpeakerSide, 'off'>, number> = { left: 0.18, middle: 0.5, right: 0.82 }
+const TAIL_Y = 0.68
+
+/** The balloon leans toward its speaker without hanging off the panel. */
+const BODY_X: Record<Exclude<SpeakerSide, 'off'>, number> = { left: 0.3, middle: 0.5, right: 0.7 }
+
 /** The nearest layout to the number of panels written, never fewer frames. */
 export function layoutForPanels(count: number): PageLayoutId {
   const wanted = Math.max(1, count)
@@ -106,10 +118,16 @@ export function layoutForPanels(count: number): PageLayoutId {
   return bestDistance === Infinity ? 'six-grid' : best
 }
 
+export interface WrittenBalloon {
+  balloon: Balloon
+  /** Where the speaker is in the panel, so the tail can point at them. */
+  from: SpeakerSide
+}
+
 export interface WrittenPage {
   title: string
   layout: PageLayoutId
-  panels: { note: string; balloons: Balloon[] }[]
+  panels: { note: string; balloons: WrittenBalloon[] }[]
 }
 
 export function readGraphicPages(raw: unknown): WrittenPage[] {
@@ -120,15 +138,21 @@ export function readGraphicPages(raw: unknown): WrittenPage[] {
       const cell = (panel ?? {}) as { art?: unknown; description?: unknown; balloons?: unknown }
       const balloons = list(cell.balloons)
         .map((b) => {
-          const raw = (b ?? {}) as { kind?: unknown; text?: unknown }
+          const raw = (b ?? {}) as { kind?: unknown; text?: unknown; from?: unknown; speaker?: unknown }
           const text = str(raw.text)
           if (!text) return null
           const kind = BALLOON_KINDS.includes(raw.kind as BalloonKind)
             ? (raw.kind as BalloonKind)
             : 'speech'
-          return { ...createBalloon(kind), text }
+          const speaker = str(raw.speaker)
+          // Nothing said off-panel, and nothing in a caption or a sound effect,
+          // has a speaker to point at.
+          const from: SpeakerSide = kind === 'caption' || kind === 'sfx'
+            ? 'off'
+            : SIDES.includes(raw.from as SpeakerSide) ? (raw.from as SpeakerSide) : 'middle'
+          return { balloon: { ...createBalloon(kind), text, ...(speaker ? { speaker } : {}) }, from }
         })
-        .filter((b): b is Balloon => b !== null)
+        .filter((b): b is WrittenBalloon => b !== null)
       return { note: str(cell.art) || str(cell.description), balloons }
     })
     return {
@@ -140,11 +164,27 @@ export function readGraphicPages(raw: unknown): WrittenPage[] {
   return pages.filter((p) => p.panels.length > 0)
 }
 
-/** Lay the written balloons out down the page so they do not land on top of each other. */
-function placeBalloons(balloons: Balloon[]): Balloon[] {
-  return balloons.map((balloon, i) => {
-    const step = 1 / (balloons.length + 1)
-    return { ...balloon, y: step * (i + 1) * 0.8, tailY: Math.min(0.92, step * (i + 1) * 0.8 + 0.4) }
+/**
+ * Place the balloons of one panel.
+ *
+ * They stack down from the top so they sit over sky rather than over faces,
+ * and each leans toward whoever is speaking with its tail reaching down to
+ * them — a tail pointing at nobody is the thing that makes a drawn page look
+ * wrong even when everything else is right. A caption, a sound effect or a
+ * voice from off-panel has nobody to point at, so its tail is left on its own
+ * centre, where the renderer declines to draw one.
+ */
+export function placeBalloons(written: WrittenBalloon[]): Balloon[] {
+  return written.map(({ balloon, from }, i) => {
+    const y = Math.min(0.62, 0.16 + i * 0.19)
+    // A caption or a sound effect has no speaker whatever the story claimed,
+    // so the rule is enforced here as well as read there: this is the function
+    // that decides tails, and it should not be able to draw a wrong one.
+    const aimed = balloon.kind === 'caption' || balloon.kind === 'sfx' ? 'off' : from
+    if (aimed === 'off') {
+      return { ...balloon, x: 0.5, y, tailX: 0.5, tailY: y }
+    }
+    return { ...balloon, x: BODY_X[aimed], y, tailX: TAIL_X[aimed], tailY: TAIL_Y }
   })
 }
 

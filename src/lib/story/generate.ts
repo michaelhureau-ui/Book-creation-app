@@ -28,6 +28,8 @@ interface Ask {
   audience: string
   /** The show or film the story is set in, if any. */
   show?: string
+  /** Tell that show's own story again, rather than a new adventure in it. */
+  retell?: boolean
   outline?: Outline
   index?: number
 }
@@ -102,6 +104,7 @@ export async function writeStory(
   hooks: StoryHooks,
   signal?: AbortSignal,
   show = '',
+  retell = false,
 ): Promise<{ bookId: string; chapters: number }> {
   if (!idea.trim() && !show.trim()) {
     throw new StoryFailed('empty_idea', 'Say what the story should be about, or name a show or film.')
@@ -109,7 +112,7 @@ export async function writeStory(
 
   hooks.onProgress({ done: 0, total: 1, label: 'Planning the book…' })
   const outline = readOutline(
-    (await ask({ stage: 'outline', idea, kind, length, audience, show }, signal)).outline)
+    (await ask({ stage: 'outline', idea, kind, length, audience, show, retell }, signal)).outline)
 
   const total = outline.chapters.length
   const bookId = await hooks.onStart(startBook(outline, kind))
@@ -123,7 +126,7 @@ export async function writeStory(
     let reply: Record<string, unknown>
     try {
       reply = await ask(
-        { stage: 'chapter', idea, kind, length, audience, show, outline, index: i }, signal)
+        { stage: 'chapter', idea, kind, length, audience, show, retell, outline, index: i }, signal)
     } catch (err) {
       // Whatever is already written stays in the library; only say so if the
       // book would otherwise be empty.
