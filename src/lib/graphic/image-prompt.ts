@@ -7,7 +7,9 @@
  * ids here match the ones the server knows, so the two cannot drift.
  */
 
-export type ArtStyle = 'ink' | 'color' | 'noir' | 'manga' | 'watercolour' | 'retro'
+export type ArtStyle =
+  | 'ink' | 'color' | 'noir' | 'manga' | 'watercolour' | 'retro'
+  | 'render3d' | 'storybook' | 'pencil'
 
 export interface StyleOption {
   id: ArtStyle
@@ -21,6 +23,9 @@ export const STYLES: StyleOption[] = [
   { id: 'manga', label: 'Manga' },
   { id: 'watercolour', label: 'Watercolour' },
   { id: 'retro', label: 'Retro print' },
+  { id: 'render3d', label: '3D animated film' },
+  { id: 'storybook', label: 'Storybook painting' },
+  { id: 'pencil', label: 'Pencil drawing' },
 ]
 
 export function styleOf(id: ArtStyle): StyleOption {

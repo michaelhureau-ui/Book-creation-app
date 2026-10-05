@@ -217,6 +217,25 @@ outline, a scalloped cloud with a bubble trail for thoughts, a starburst for a
 shout, and outlined display type for sound effects. Drag one handle to move a
 balloon and another to aim its tail.
 
+**Make a movie of it.** *Movie* turns a graphic novel into a film: the cover,
+then every panel in reading order, each held long enough to read its lettering
+and travelled over by a slow camera — down a tall panel, across a wide one,
+pushing gently into one the shape of the screen, so nothing is cropped to its
+middle and lost. Chapters get their own card, and it ends on one. The pages are
+drawn through the renderer that already backs the editor, the preview, the
+exports and the printout, so the film is made of the book rather than a second
+drawing of it.
+
+It records in real time, because that is what the browser's recorder captures
+and because a book is watched at the speed it is read — the canvas in the dialog
+is the recording, so what you watch is exactly what lands in the file. Out comes
+a `.webm` (or `.mp4` on Safari) to keep or send. A novel has no pictures to film,
+so there it makes a title sequence instead, and says so.
+
+The *look* of a film comes from the artwork, not the film: pick **3D animated
+film**, **Storybook painting**, **Pencil drawing** or any other style when the
+pictures are made, and the movie inherits it.
+
 **Publish it.** A print **PDF** (each page rendered and embedded at your chosen
 trim and resolution), a **CBZ** archive of page images with a `ComicInfo.xml`
 sidecar that comic readers use for metadata, or a plain-text **script** listing
@@ -242,6 +261,7 @@ src/
 │   ├── stats.ts         word counts, reading time, panel counts
 │   ├── cover.ts         jacket palettes and layouts
 │   ├── graphic/         layouts · pages · assets · drawing · generation · renderer
+│   ├── movie/           the shot list of a film, and recording it
 │   ├── printing.ts      what goes on each sheet of paper
 │   ├── story/           written-story requests, and turning one into a book
 │   ├── useSpeech.ts     dictation through the browser's own recogniser
@@ -304,7 +324,8 @@ layout geometry, the artwork crop maths, the drawing board's flood fill and
 colour parsing, the page counts each length promises, what lands on each printed sheet, that a
 story set in a show asks for its cast by how they really look and keeps names
 out of the drawing briefs, that a balloon's tail reaches toward the speaker and
-that a caption never grows one, the drawing pass (that it
+that a caption never grows one, the grammar of a film — what is shown, in what
+order, for how long, and which way the camera travels over it — the drawing pass (that it
 stops dead on a spent allowance, skips a single refused picture, and keeps what
 it drew), balloon fitting (that a long speech stays inside the panel it is
 drawn in, and a sound effect shrinks rather than splitting), reading a written

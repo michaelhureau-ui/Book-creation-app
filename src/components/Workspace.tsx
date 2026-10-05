@@ -8,6 +8,7 @@ import { DetailsPanel } from '@/components/DetailsPanel'
 import { Preview } from '@/components/Preview'
 import { ExportDialog } from '@/components/ExportDialog'
 import { PrintView } from '@/components/PrintView'
+import { MovieDialog } from '@/components/MovieDialog'
 import { GraphicWorkspace } from '@/components/graphic/GraphicWorkspace'
 import { Drawer, EmptyState } from '@/components/ui'
 import { useMediaQuery } from '@/lib/useNarrow'
@@ -45,7 +46,7 @@ export function Workspace() {
   const updateProsePage = useStore((s) => s.updateProsePage)
   const addChapter = useStore((s) => s.addChapter)
 
-  const [panel, setPanel] = useState<'details' | 'preview' | 'export' | 'print' | null>(null)
+  const [panel, setPanel] = useState<'details' | 'preview' | 'export' | 'print' | 'movie' | null>(null)
   // The comic page size is a view/export setting rather than part of the book,
   // so it lives here and is handed to both the editor and the export dialog.
   const [trim, setTrim] = useState<TrimId>('comic')
@@ -120,6 +121,9 @@ export function Workspace() {
           <button className="btn btn-outline" onClick={() => setPanel('print')} title="Print (⌘P)">
             <Icons.Printer /> <span className="hidden md:inline">Print</span>
           </button>
+          <button className="btn btn-outline" onClick={() => setPanel('movie')} title="Make a movie">
+            <Icons.Film /> <span className="hidden md:inline">Movie</span>
+          </button>
           <button className="btn btn-primary" onClick={() => setPanel('export')} title="Export (⌘E)">
             <Icons.Download /> <span className="hidden md:inline">Export</span>
           </button>
@@ -193,6 +197,7 @@ export function Workspace() {
       {panel === 'preview' && <Preview book={book} trim={trim} onClose={() => setPanel(null)} />}
       {panel === 'export' && <ExportDialog book={book} trim={trim} onClose={() => setPanel(null)} />}
       {panel === 'print' && <PrintView book={book} trim={trim} onClose={() => setPanel(null)} />}
+      {panel === 'movie' && <MovieDialog book={book} onClose={() => setPanel(null)} />}
     </div>
   )
 }

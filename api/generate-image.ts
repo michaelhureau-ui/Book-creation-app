@@ -38,6 +38,9 @@ export const STYLE_MODIFIERS: Record<string, string> = {
   manga: 'manga panel, screentone shading, expressive linework, black and white',
   watercolour: 'watercolour illustration, soft washes, visible paper texture, gentle palette',
   retro: 'vintage 1960s comic panel, halftone dot shading, limited four-colour palette, slight print misregistration',
+  render3d: 'computer-animated film still, 3D rendered characters, soft global illumination, shallow depth of field, cinematic lighting',
+  storybook: 'children\'s picture-book illustration, gouache and coloured pencil, warm hand-painted texture, friendly rounded shapes',
+  pencil: 'graphite pencil drawing, visible hatching and smudged shading, sketchbook paper, no colour',
 }
 
 export const MAX_SUBJECT_LENGTH = 300
