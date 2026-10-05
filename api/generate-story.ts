@@ -191,22 +191,41 @@ interface GoogleModel {
 }
 
 /**
+ * How good a candidate a model name looks, best first. Sorting the names
+ * alphabetically is what once picked `gemini-omni-flash-preview` over
+ * `gemini-2.5-flash` — "o" simply sorts after "2" — so rank them on what
+ * actually matters instead.
+ */
+export function rankTextModel(name: string): [number, number, number] {
+  const flash = /flash/i.test(name) && !/lite/i.test(name) ? 1 : 0
+  // A preview or a moving alias can change under the deployment without warning.
+  const settled = /preview|exp(?:erimental)?\b|latest|-\d{4}/i.test(name) ? 0 : 1
+  const version = Number(/gemini-(\d+(?:\.\d+)?)/i.exec(name)?.[1] ?? 0)
+  return [flash, settled, version]
+}
+
+/**
  * Pick a text model from Google's own list rather than hardcoding a name that
  * will age. A deployment can still pin one with GOOGLE_TEXT_MODEL.
+ *
+ * The list contains models this endpoint cannot use at all — an omni model
+ * answers "This model only supports Interactions API" — so a model is taken
+ * only when Google says it supports generateContent. Assuming it does when the
+ * list is silent is how an unusable one gets through.
  */
 export function chooseGoogleTextModel(models: GoogleModel[]): string | null {
   const usable = models
-    .filter((m) => (m.supportedGenerationMethods ?? ['generateContent']).includes('generateContent'))
+    .filter((m) => (m.supportedGenerationMethods ?? []).includes('generateContent'))
     .map((m) => (m.name ?? '').replace(/^models\//, ''))
-    .filter((name) => /gemini/i.test(name))
+    .filter((name) => /^gemini-/i.test(name))
     // Image, speech, embedding and realtime variants cannot write a chapter.
-    .filter((name) => !/image|vision|embedding|tts|audio|live|thinking/i.test(name))
+    .filter((name) => !/image|vision|embedding|tts|audio|live|thinking|omni|robotics/i.test(name))
   if (usable.length === 0) return null
-  // Flash models are the fast, free-tier-friendly ones; a chapter does not need
-  // the heaviest model, and a slow call is one that times out.
-  const flash = usable.filter((n) => /flash/i.test(n) && !/lite/i.test(n))
-  const pool = flash.length > 0 ? flash : usable
-  return pool.sort().reverse()[0]
+  return usable.sort((a, b) => {
+    const [fa, sa, va] = rankTextModel(a)
+    const [fb, sb, vb] = rankTextModel(b)
+    return fb - fa || sb - sa || vb - va || a.localeCompare(b)
+  })[0]
 }
 
 /**
@@ -244,13 +263,27 @@ export function extractGoogleText(body: unknown): string {
 }
 
 const GOOGLE_BASE = 'https://generativelanguage.googleapis.com/v1beta'
-/** Used only if the model list cannot be read. */
-const GOOGLE_FALLBACK_MODEL = 'gemini-2.0-flash'
+/** Used if the model list cannot be read, or if the chosen model will not write. */
+const GOOGLE_FALLBACK_MODEL = 'gemini-2.5-flash'
 let cachedGoogleModel: string | null = null
 
 /** Clears the memoised model choice. Exposed so tests start from a clean slate. */
 export function resetGoogleTextModelCache(): void {
   cachedGoogleModel = null
+}
+
+/**
+ * Whether a failure is the model's fault rather than the request's — it cannot
+ * do this at all, or it is not there. Worth trying a different model for;
+ * everything else would fail the same way twice.
+ */
+export function looksLikeWrongModel(status: number, body: string): boolean {
+  if (status !== 400 && status !== 404) return false
+  const lower = body.toLowerCase()
+  return lower.includes('only supports')
+    || lower.includes('is not found')
+    || lower.includes('not supported for')
+    || lower.includes('is not supported')
 }
 
 async function resolveGoogleModel(key: string, signal: AbortSignal): Promise<string> {
@@ -290,26 +323,39 @@ function googlePayload(prompt: string, maxTokens: number, askForJson: boolean): 
 async function writeWithGoogle(
   key: string, prompt: string, maxTokens: number, signal: AbortSignal,
 ): Promise<Written> {
-  const model = await resolveGoogleModel(key, signal)
-  const url = `${GOOGLE_BASE}/models/${model}:generateContent`
-  const send = (askForJson: boolean): Promise<Response> => fetch(url, {
-    method: 'POST',
-    headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
-    body: googlePayload(prompt, maxTokens, askForJson),
-    signal,
-  })
+  const send = (model: string, askForJson: boolean): Promise<Response> =>
+    fetch(`${GOOGLE_BASE}/models/${model}:generateContent`, {
+      method: 'POST',
+      headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
+      body: googlePayload(prompt, maxTokens, askForJson),
+      signal,
+    })
 
-  let res = await send(true)
+  let model = await resolveGoogleModel(key, signal)
+  let res = await send(model, true)
   let body = ''
 
   if (!res.ok) {
     body = await res.text().catch(() => '')
+
     // A 400 we cannot otherwise explain is a complaint about the request, and
     // asking for JSON is the least standard thing in it. Try again plainly
     // before giving up — but not when the key, the quota or a refusal is the
     // real problem, where a second attempt only wastes the writer's time.
-    if (res.status === 400 && describeProviderFailure(res.status, body).code === 'provider_error') {
-      res = await send(false)
+    if (res.status === 400 && !looksLikeWrongModel(res.status, body)
+        && describeProviderFailure(res.status, body).code === 'provider_error') {
+      res = await send(model, false)
+      body = res.ok ? '' : await res.text().catch(() => '')
+    }
+
+    // Google lists models this endpoint cannot use, and which one is listed
+    // changes over time. Rather than need a redeploy every time the list moves,
+    // forget the choice and fall back to one known to write.
+    if (!res.ok && looksLikeWrongModel(res.status, body) && model !== GOOGLE_FALLBACK_MODEL) {
+      console.error(`[generate-story] ${model} cannot write; falling back to ${GOOGLE_FALLBACK_MODEL}`)
+      cachedGoogleModel = null
+      model = GOOGLE_FALLBACK_MODEL
+      res = await send(model, true)
       body = res.ok ? '' : await res.text().catch(() => '')
     }
   }
@@ -323,6 +369,9 @@ async function writeWithGoogle(
       error: withReason(describeProviderFailure(res.status, body), body),
     }
   }
+
+  // The model that answered is the one worth using again.
+  cachedGoogleModel = model
 
   const text = extractGoogleText(await res.json().catch(() => null))
   if (!text) {

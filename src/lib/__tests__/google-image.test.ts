@@ -39,41 +39,55 @@ describe('pickGoogleRatio', () => {
 })
 
 describe('chooseGoogleModel', () => {
+  /** Google's list says what each model can actually be asked to do. */
+  const predicts = (name: string) => ({ name: `models/${name}`, supportedGenerationMethods: ['predict'] })
+  const generates = (name: string) => ({ name: `models/${name}`, supportedGenerationMethods: ['generateContent'] })
+
   it('prefers a dedicated image model over a text one', () => {
-    const chosen = chooseGoogleModel([
-      { name: 'models/gemini-2.5-flash' },
-      { name: 'models/imagen-3.0-generate-002' },
-      { name: 'models/text-embedding-004' },
-    ])
-    expect(chosen).toBe('imagen-3.0-generate-002')
+    expect(chooseGoogleModel([
+      generates('gemini-2.5-flash'),
+      predicts('imagen-3.0-generate-002'),
+      { name: 'models/text-embedding-004', supportedGenerationMethods: ['embedContent'] },
+    ])).toBe('imagen-3.0-generate-002')
   })
 
   it('picks the newest-looking imagen when several exist', () => {
-    const chosen = chooseGoogleModel([
-      { name: 'models/imagen-3.0-generate-001' },
-      { name: 'models/imagen-4.0-generate-001' },
-      { name: 'models/imagen-3.0-generate-002' },
-    ])
-    expect(chosen).toBe('imagen-4.0-generate-001')
+    expect(chooseGoogleModel([
+      predicts('imagen-3.0-generate-001'),
+      predicts('imagen-4.0-generate-001'),
+      predicts('imagen-3.0-generate-002'),
+    ])).toBe('imagen-4.0-generate-001')
   })
 
   it('accepts a gemini image model when no imagen is offered', () => {
     expect(chooseGoogleModel([
-      { name: 'models/gemini-2.5-flash' },
-      { name: 'models/gemini-2.5-flash-image' },
+      generates('gemini-2.5-flash'),
+      generates('gemini-2.5-flash-image'),
     ])).toBe('gemini-2.5-flash-image')
   })
 
   it('ignores models that only edit or embed', () => {
     expect(chooseGoogleModel([
-      { name: 'models/imagen-3.0-capability-edit' },
-      { name: 'models/image-upscale-001' },
-      { name: 'models/multimodal-embedding' },
+      predicts('imagen-3.0-capability-edit'),
+      predicts('image-upscale-001'),
+      { name: 'models/multimodal-embedding', supportedGenerationMethods: ['embedContent'] },
+    ])).toBeNull()
+  })
+
+  /**
+   * The list carries models that cannot serve this endpoint at all. Taking one
+   * on the strength of its name is how the story endpoint once chose an omni
+   * model, which answers "This model only supports Interactions API".
+   */
+  it('will not take a model Google does not say can do this', () => {
+    expect(chooseGoogleModel([{ name: 'models/imagen-4.0-generate-001' }])).toBeNull()
+    expect(chooseGoogleModel([
+      { name: 'models/gemini-omni-flash-image-preview', supportedGenerationMethods: ['bidiGenerateContent'] },
     ])).toBeNull()
   })
 
   it('reports nothing when the list has no image model at all', () => {
-    expect(chooseGoogleModel([{ name: 'models/gemini-2.5-pro' }])).toBeNull()
+    expect(chooseGoogleModel([generates('gemini-2.5-pro')])).toBeNull()
     expect(chooseGoogleModel([])).toBeNull()
   })
 })

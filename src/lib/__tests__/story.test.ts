@@ -7,6 +7,7 @@ import { MAX_IDEA_LENGTH, STORY_AUDIENCES, STORY_LENGTHS } from '@/lib/story/lim
 import {
   AUDIENCES, MAX_IDEA_LENGTH as API_MAX_IDEA_LENGTH, SHAPES, buildChapterPrompt,
   buildOutlinePrompt, chooseGoogleTextModel, cleanIdea, extractGoogleText, parseJsonBody,
+  rankTextModel,
 } from '../../../api/generate-story'
 import { panelCount } from '@/lib/graphic/layouts'
 import { parseBlocks, blocksText } from '@/lib/blocks'
@@ -200,5 +201,40 @@ describe('choosing a text model', () => {
 
   it('falls back to a non-flash model rather than nothing', () => {
     expect(chooseGoogleTextModel(models('gemini-2.5-pro'))).toBe('gemini-2.5-pro')
+  })
+
+  /**
+   * The failure this guards against, seen in production: Google's list offers
+   * `gemini-omni-flash-preview`, which answers "This model only supports
+   * Interactions API". It was picked for two reasons — the names were sorted
+   * alphabetically, so "omni" beat "2.5", and a model was assumed capable when
+   * the list never said it was.
+   */
+  it('will not take a model Google does not say can write', () => {
+    expect(chooseGoogleTextModel([{ name: 'models/gemini-2.5-flash' }])).toBeNull()
+  })
+
+  it('leaves out an omni model, which serves a different API entirely', () => {
+    expect(chooseGoogleTextModel(models('gemini-omni-flash-preview'))).toBeNull()
+  })
+
+  it('does not let a name that merely sorts last win', () => {
+    expect(chooseGoogleTextModel(models(
+      'gemini-2.5-flash', 'gemini-omni-flash-preview', 'gemini-flash-latest',
+    ))).toBe('gemini-2.5-flash')
+  })
+
+  it('prefers a settled model over a preview or a moving alias', () => {
+    expect(rankTextModel('gemini-2.5-flash')[1]).toBe(1)
+    for (const moving of ['gemini-2.5-flash-preview-05-20', 'gemini-flash-latest', 'gemini-2.0-flash-exp']) {
+      expect(rankTextModel(moving)[1]).toBe(0)
+    }
+    expect(chooseGoogleTextModel(models('gemini-2.5-flash-preview-05-20', 'gemini-2.0-flash')))
+      .toBe('gemini-2.0-flash')
+  })
+
+  it('prefers the higher version among equally settled models', () => {
+    expect(chooseGoogleTextModel(models('gemini-1.5-flash', 'gemini-2.5-flash', 'gemini-2.0-flash')))
+      .toBe('gemini-2.5-flash')
   })
 })

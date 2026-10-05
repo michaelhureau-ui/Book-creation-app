@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import handler, {
-  describeProviderFailure as describeStoryFailure, providerReason, resetGoogleTextModelCache,
-  withReason,
+  describeProviderFailure as describeStoryFailure, looksLikeWrongModel, providerReason,
+  resetGoogleTextModelCache, withReason,
 } from '../../../api/generate-story'
 import { describeProviderFailure as describeImageFailure } from '../../../api/generate-image'
 
@@ -174,6 +174,49 @@ describe('a failure the provider explained', () => {
     // A message that already says what to do is left alone.
     const keyed = { code: 'not_configured', message: 'The story service rejected the API key.' } as const
     expect(withReason(keyed, JSON.stringify({ error: { message: 'noise' } }))).toEqual(keyed)
+  })
+})
+
+describe('a model that cannot write at all', () => {
+  const original = process.env.GOOGLE_API_KEY
+  beforeEach(() => { process.env.GOOGLE_API_KEY = 'test-key'; resetGoogleTextModelCache() })
+  afterEach(() => {
+    if (original === undefined) delete process.env.GOOGLE_API_KEY
+    else process.env.GOOGLE_API_KEY = original
+    vi.unstubAllGlobals()
+  })
+
+  it('recognises the provider saying the model is the wrong one', () => {
+    expect(looksLikeWrongModel(400, '{"error":{"message":"This model only supports Interactions API."}}')).toBe(true)
+    expect(looksLikeWrongModel(404, 'models/foo is not found for API version v1beta')).toBe(true)
+    // A quota or a key problem is not solved by a different model.
+    expect(looksLikeWrongModel(429, 'You exceeded your current quota')).toBe(false)
+    expect(looksLikeWrongModel(400, 'API key not valid')).toBe(false)
+  })
+
+  it('falls back to a model that can, rather than needing a redeploy', async () => {
+    // The listed model is one the endpoint cannot use — exactly what happened
+    // in production when the list offered an omni model.
+    const fetchMock = vi.fn(async (url: string) => {
+      const target = String(url)
+      if (target.includes('/models?')) {
+        return jsonResponse({ models: [{ name: 'models/gemini-made-up', supportedGenerationMethods: ['generateContent'] }] })
+      }
+      if (target.includes('gemini-made-up')) {
+        return jsonResponse({ error: { message: 'This model only supports Interactions API.' } }, 400)
+      }
+      return jsonResponse({ candidates: [{ content: { parts: [{ text: '{"title":"T","chapters":[{"title":"One","summary":"S"}]}' }] } }] })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const { res, out } = makeRes()
+    await handler({ method: 'POST', body: { idea: 'a fox at sea' } }, res)
+    expect(out.code).toBe(200)
+    expect(out.body).toMatchObject({ outline: { title: 'T' } })
+    // It must not keep paying for the dead model on the next request.
+    const { res: res2, out: out2 } = makeRes()
+    await handler({ method: 'POST', body: { idea: 'a fox at sea' } }, res2)
+    expect(out2.code).toBe(200)
+    expect(fetchMock.mock.calls.filter((c) => String(c[0]).includes('gemini-made-up'))).toHaveLength(1)
   })
 })
 

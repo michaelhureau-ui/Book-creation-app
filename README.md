@@ -132,7 +132,12 @@ used here: the Anthropic API generates text, not images.
 Rather than hardcode a Google model name that will age, the functions read
 Google's own model list and pick from it — a dedicated Imagen model for
 pictures, a Flash model for writing, since a chapter does not need the heaviest
-model and a slow call is one that times out. Pin either with `GOOGLE_IMAGE_MODEL`
+model and a slow call is one that times out. A model is taken only when the
+list says it supports the call being made, and settled names are preferred over
+previews and moving aliases: the list carries models that cannot serve these
+endpoints at all, and one of them answers `This model only supports
+Interactions API`. If the chosen model turns out not to write, the endpoint
+falls back to one that does rather than waiting for a redeploy. Pin either with `GOOGLE_IMAGE_MODEL`
 or `GOOGLE_TEXT_MODEL` (`OPENAI_TEXT_MODEL` for OpenAI) to override that.
 
 Without any key the app says so plainly and everything else still works. Both

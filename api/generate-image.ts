@@ -138,13 +138,24 @@ interface GoogleModel {
  * Pick an image model from Google's own model list rather than hardcoding a
  * name. Model ids change; this keeps working when they do, and a deployment
  * can still pin one with GOOGLE_IMAGE_MODEL.
+ *
+ * A model is taken only when Google says it supports the call this endpoint
+ * makes. The list carries models that cannot be used this way at all, and
+ * assuming capability when the list is silent is how one gets picked — a text
+ * endpoint once chose an omni model that answers "This model only supports
+ * Interactions API".
  */
 export function chooseGoogleModel(models: GoogleModel[]): string | null {
   const usable = models
+    .filter((m) => {
+      const methods = m.supportedGenerationMethods ?? []
+      return methods.includes('predict') || methods.includes('generateContent')
+    })
     .map((m) => (m.name ?? '').replace(/^models\//, ''))
     .filter((name) => /imagen|image/i.test(name))
-    // A model that only edits or upscales cannot generate from a prompt alone.
-    .filter((name) => !/edit|upscale|segment|embedding/i.test(name))
+    // A model that only edits or upscales cannot generate from a prompt alone,
+    // and a conversational or speech variant is not an image model at all.
+    .filter((name) => !/edit|upscale|segment|embedding|omni|live|tts|audio|robotics/i.test(name))
   if (usable.length === 0) return null
   // Prefer a dedicated Imagen model, then the newest-looking name.
   const imagen = usable.filter((n) => /imagen/i.test(n))
