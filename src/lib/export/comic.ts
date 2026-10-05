@@ -166,7 +166,11 @@ export function buildScript(book: Book): string {
 
     page.panels.forEach((panel, panelIndex) => {
       lines.push('', `PANEL ${pageIndex + 1}.${panelIndex + 1}`)
+      const note = panel.note?.trim()
       lines.push(panel.assetId ? '  [artwork placed]' : '  [artwork to come]')
+      // The brief is what a collaborator actually needs; the status line alone
+      // tells them nothing about what to draw.
+      if (note) lines.push(`  ART: ${note}`)
       if (panel.balloons.length === 0) {
         lines.push('  (no lettering)')
         return

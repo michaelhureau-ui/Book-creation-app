@@ -3,6 +3,7 @@ import clsx from 'clsx'
 import { Icons } from '@/components/Icons'
 import { BookCover } from '@/components/BookCover'
 import { ConfirmDialog, EmptyState, Modal } from '@/components/ui'
+import { StoryDialog } from '@/components/StoryDialog'
 import { useStore } from '@/lib/store'
 import { bookStats, formatCount, readingSummary } from '@/lib/stats'
 import { bookFromJson, restoreAssets } from '@/lib/export'
@@ -153,6 +154,7 @@ export function Library() {
   const importBook = useStore((s) => s.importBook)
 
   const [creating, setCreating] = useState(false)
+  const [writing, setWriting] = useState(false)
   const [query, setQuery] = useState('')
   const [pendingDelete, setPendingDelete] = useState<Book | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
@@ -231,6 +233,9 @@ export function Library() {
           <button className="btn btn-outline" onClick={() => fileInput.current?.click()}>
             <Icons.Upload /> Import
           </button>
+          <button className="btn btn-outline" onClick={() => setWriting(true)}>
+            <Icons.Sparkle /> Write me a story
+          </button>
           <button className="btn btn-primary" onClick={() => setCreating(true)}>
             <Icons.Plus /> New book
           </button>
@@ -255,7 +260,16 @@ export function Library() {
           icon={<Icons.Book className="h-5 w-5" />}
           title="No books yet"
           body="Start one and write the first chapter. You can export it as a PDF, Word file, or EPUB whenever you're ready."
-          action={<button className="btn btn-primary" onClick={() => setCreating(true)}><Icons.Plus /> New book</button>}
+          action={
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <button className="btn btn-primary" onClick={() => setCreating(true)}>
+                <Icons.Plus /> New book
+              </button>
+              <button className="btn btn-outline" onClick={() => setWriting(true)}>
+                <Icons.Sparkle /> Write me a story
+              </button>
+            </div>
+          }
         />
       ) : shown.length === 0 ? (
         <EmptyState
@@ -273,6 +287,7 @@ export function Library() {
       )}
 
       {creating && <NewBookDialog onClose={() => setCreating(false)} />}
+      {writing && <StoryDialog onClose={() => setWriting(false)} />}
       {pendingDelete && (
         <ConfirmDialog
           title={`Delete “${pendingDelete.title || 'Untitled book'}”?`}

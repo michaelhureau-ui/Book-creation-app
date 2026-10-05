@@ -1,6 +1,6 @@
-import type { Page } from '@/types'
+import type { Balloon, Page } from '@/types'
 import { frameToRect, layoutOf } from '@/lib/graphic/layouts'
-import { pageGeometry, trimOf, type TrimId } from '@/lib/graphic/render'
+import { balloonPlacement, pageGeometry, trimOf, type TrimId } from '@/lib/graphic/render'
 
 export interface PercentRect { left: number; top: number; width: number; height: number }
 
@@ -38,4 +38,27 @@ export function panelAspect(page: Page, index: number, trim: TrimId): number {
   const pageAspect = aspectRatio(trim)
   // Percentages are of different page dimensions, so convert through the page.
   return (rect.width * pageAspect) / rect.height
+}
+
+/**
+ * Where a balloon's move handle belongs, as a percentage of its panel box.
+ *
+ * Long lettering widens and slides to stay inside the panel, so the balloon is
+ * not always centred on the point the writer dragged it to. Asking the renderer
+ * where it actually put the balloon keeps the handle on the thing it moves.
+ */
+export function balloonHandle(
+  page: Page, index: number, balloon: Balloon, trim: TrimId,
+): { left: number; top: number } {
+  const fallback = { left: balloon.x * 100, top: balloon.y * 100 }
+  const frame = layoutOf(page.layout).frames[index]
+  if (!frame) return fallback
+  const geo = pageGeometry({ trim, dpi: 100 })
+  const rect = frameToRect(frame, geo)
+  const placed = balloonPlacement(balloon, rect, geo.width / 1000)
+  if (!placed || rect.w === 0 || rect.h === 0) return fallback
+  return {
+    left: ((placed.cx - rect.x) / rect.w) * 100,
+    top: ((placed.cy - rect.y) / rect.h) * 100,
+  }
 }

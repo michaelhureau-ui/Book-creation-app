@@ -71,6 +71,7 @@ function readPage(raw: Partial<Page> | undefined, i: number): Page {
   const panels: Panel[] = (Array.isArray(raw?.panels) ? raw!.panels : []).map((p, pi) => ({
     id: typeof p?.id === 'string' ? p.id : `panel-${i}-${pi}`,
     assetId: typeof p?.assetId === 'string' ? p.assetId : null,
+    note: typeof p?.note === 'string' ? p.note : undefined,
     zoom: typeof p?.zoom === 'number' && p.zoom >= 1 ? p.zoom : 1,
     offsetX: typeof p?.offsetX === 'number' ? p.offsetX : 0,
     offsetY: typeof p?.offsetY === 'number' ? p.offsetY : 0,

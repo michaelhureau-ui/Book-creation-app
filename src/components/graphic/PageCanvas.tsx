@@ -4,7 +4,7 @@ import type { Book, Page } from '@/types'
 import { drawPage, assetIdsOf, pageGeometry, type TrimId } from '@/lib/graphic/render'
 import { loadImages } from '@/lib/graphic/assets'
 import { useStore } from '@/lib/store'
-import { aspectRatio, panelRects } from '@/components/graphic/geometry'
+import { aspectRatio, balloonHandle, panelRects } from '@/components/graphic/geometry'
 
 /** Screen render resolution — enough to stay crisp on a high-density display. */
 const SCREEN_DPI = 150
@@ -138,14 +138,16 @@ export function PageCanvas({ book, page, trim }: { book: Book; page: Page; trim:
               </span>
             )}
 
-            {selected && panel.balloons.map((balloon) => (
+            {selected && panel.balloons.map((balloon) => {
+              const handle = balloonHandle(page, index, balloon, trim)
+              return (
               <div key={balloon.id}>
                 <button
                   className={clsx(
                     'absolute z-10 h-5 w-5 -translate-x-1/2 -translate-y-1/2 cursor-grab rounded-full border-2 bg-white/90 shadow',
                     balloon.id === selectedBalloonId ? 'border-accent' : 'border-ink/50',
                   )}
-                  style={{ left: `${balloon.x * 100}%`, top: `${balloon.y * 100}%` }}
+                  style={{ left: `${handle.left}%`, top: `${handle.top}%` }}
                   title="Drag to move the balloon"
                   aria-label="Move balloon"
                   onPointerDown={(e) => startDrag(e, index, panel.id, balloon.id, 'body')}
@@ -163,7 +165,8 @@ export function PageCanvas({ book, page, trim }: { book: Book; page: Page; trim:
                   />
                 )}
               </div>
-            ))}
+              )
+            })}
           </div>
         )
       })}

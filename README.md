@@ -44,6 +44,18 @@ split into front matter (a preface), body chapters, and back matter (an
 appendix). Only body chapters are numbered, the way a printed book does it.
 Everything autosaves.
 
+**Or have it written for you.** *Write me a story* on the library screen asks
+what the book is about — "a fox who runs a lost property office at the bottom of
+the sea" — and writes it: a novel with chapters and pages, or a graphic novel
+laid out as pages of panels with the dialogue already in balloons. Pick how long
+it should be and who it is for; the audience shapes the vocabulary, not just the
+subject matter. The result is an ordinary book in your library, yours to rewrite.
+
+The book is planned first and then written a chapter at a time, so there is a
+real progress bar rather than a spinner, and a long book cannot be cut off
+halfway by a single call running out of time. It needs the same API key as
+picture-making, below.
+
 **As many pages in a chapter as you want.** A chapter is written as a run of
 pages, listed above the editor — add one and keep writing, reorder them, delete
 one. Each page starts a fresh sheet in the PDF and the `.docx`, so you decide
@@ -72,6 +84,14 @@ Keyboard: `⌘/Ctrl+P` previews, `⌘/Ctrl+E` exports.
 Choosing **Graphic novel** when you start a book swaps the chapter editor for a
 page-and-panel one.
 
+**Lettering that fits.** A panel is clipped when it is drawn, so a balloon that
+outgrows it does not merely look wrong — the words vanish. Long lettering widens
+toward the panel first, the way a letterer reaches for more width before
+touching the type size, then shrinks the type only once there is no width left,
+and the balloon is held inside the panel rather than cut in half by the edge. A
+sound effect too long for its balloon shrinks instead of splitting across lines.
+So you can write as much as you like in a balloon and still read it back.
+
 **Group pages into chapters.** Add a chapter from the page list and pages file
 under it; add as many pages to each chapter as the story needs. The arrows on a
 page move it through the book and, at a chapter's edge, into the chapter next
@@ -88,12 +108,15 @@ dropped, along with their images.
 
 **Type a thing and get a picture.** Describe what should be in the panel — "a
 red fox on a night bus" — pick an art style, and the panel is filled with a
-generated image. The prompt is shaped for comics (it names the medium and asks
+generated image. What you typed stays on the panel, so it survives a reload and
+turns up in the exported script where the artwork is still to come. A story
+written for you arrives with that brief already filled in for every panel, so
+drawing the book is one press per panel. The prompt is shaped for comics (it names the medium and asks
 for no lettering, since balloons are added afterwards) and the output size is
 matched to the panel's shape so the artwork is barely cropped.
 
-This is the one feature that needs setting up, because the key cannot live in
-the browser — anyone could read it out of the bundle and spend your credit.
+Picture-making and story-writing are the two features that need setting up,
+because the key cannot live in — anyone could read it out of the bundle and spend your credit.
 `api/generate-image.ts` is a serverless function that holds it server-side.
 
 Set **one** of these environment variables on the Vercel project and redeploy:
@@ -106,11 +129,16 @@ Set **one** of these environment variables on the Vercel project and redeploy:
 Google is used when both are present. Note that a Claude subscription cannot be
 used here: the Anthropic API generates text, not images.
 
-Rather than hardcode a Google model name that will age, the function reads
-Google's own model list and picks an image model from it, preferring a
-dedicated Imagen model. Pin one with `GOOGLE_IMAGE_MODEL` to override that.
+Rather than hardcode a Google model name that will age, the functions read
+Google's own model list and pick from it — a dedicated Imagen model for
+pictures, a Flash model for writing, since a chapter does not need the heaviest
+model and a slow call is one that times out. Pin either with `GOOGLE_IMAGE_MODEL`
+or `GOOGLE_TEXT_MODEL` (`OPENAI_TEXT_MODEL` for OpenAI) to override that.
 
-Without any key the app says so plainly and everything else still works.
+Without any key the app says so plainly and everything else still works. Both
+endpoints answer a `GET` with whether a key reached them, which is the quickest
+way to tell a missing key from a bug: setting the variable on the wrong project,
+or on one that has not been rebuilt since, looks identical from the outside.
 
 > The endpoint is public once deployed — anyone with the URL can generate images
 > on your account. Vercel's deployment protection (Project → Settings →
@@ -157,6 +185,7 @@ src/
 │   ├── stats.ts         word counts, reading time, panel counts
 │   ├── cover.ts         jacket palettes and layouts
 │   ├── graphic/         layouts · pages · assets · drawing · generation · renderer
+│   ├── story/           written-story requests, and turning one into a book
 │   └── export/          markdown · docx · epub · pdf · comic (+ shared options)
 └── components/
     ├── graphic/         PageCanvas, PageList, PanelInspector, DrawingBoard
@@ -184,6 +213,11 @@ exist after layout, so the book is rendered twice — the first pass discovers
 where each chapter lands, the second prints those numbers. Front matter is a
 fixed length, which is what makes the two passes agree.
 
+Lettering goes through the renderer too. `layoutBalloon` decides where a balloon
+lands and how its text is set, and the editor asks it where the balloon actually
+ended up so the drag handle stays on the thing it moves — rather than keeping a
+second, slightly different idea of the same geometry.
+
 Comic pages take the same approach one level up. `graphic/render.ts` draws a
 page to a canvas, and that single renderer backs the editor, the preview, and
 both exports — the CBZ zips its output as page images, and the PDF embeds them.
@@ -207,5 +241,11 @@ The unit tests cover the parts worth pinning down — the HTML parser, chapter
 numbering, the page grouping and the rule for stepping a page between chapters,
 migrating a chapter written before pages existed, word counts, Markdown generation, backup import validation, panel
 layout geometry, the artwork crop maths, the drawing board's flood fill and
-colour parsing, that a page break the writer made really opens a new sheet, and image generation's prompt shaping, size selection, and every
-failure path (run against a stubbed provider, so no API key or spend is needed).
+colour parsing, balloon fitting (that a long speech stays inside the panel it is
+drawn in, and a sound effect shrinks rather than splitting), reading a written
+story back from whatever shape the model replied in, that a page break the
+writer made really opens a new sheet, and both generators' prompt shaping, size and model
+selection, and every failure path (run against a stubbed provider, so no API key
+or spend is needed). The two endpoints must each be self-contained to deploy, so
+what they duplicate — the style table, the limits the forms enforce, the way a
+provider failure is classified — is held in step by tests rather than by hope.

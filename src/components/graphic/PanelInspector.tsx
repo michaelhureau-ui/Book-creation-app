@@ -50,7 +50,10 @@ function Slider({
  */
 function GenerateSection({ book, page, panel, panelIndex }: { book: Book; page: Page; panel: Panel; panelIndex: number }) {
   const setPanelArt = useStore((s) => s.setPanelArt)
-  const [subject, setSubject] = useState('')
+  const updatePanel = useStore((s) => s.updatePanel)
+  // A generated story leaves a drawing brief on the panel; start from it rather
+  // than making the writer retype what the story already decided.
+  const [subject, setSubject] = useState(panel.note ?? '')
   const [style, setStyle] = useState<ArtStyle>('color')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<{ code: string; message: string } | null>(null)
@@ -69,7 +72,6 @@ function GenerateSection({ book, page, panel, panelIndex }: { book: Book; page: 
       const assetId = await generatePanelArt(
         book.id, subject, style, panelAspect(page, panelIndex, 'comic'), controller.signal)
       setPanelArt(book.id, page.id, panel.id, assetId)
-      setSubject('')
     } catch (err) {
       if (controller.signal.aborted) return
       if (err instanceof GenerationFailed) setError({ code: err.code, message: err.message })
@@ -92,6 +94,8 @@ function GenerateSection({ book, page, panel, panelIndex }: { book: Book; page: 
         aria-label="What should be in the panel"
         disabled={busy}
         onChange={(e) => setSubject(e.target.value)}
+        // Kept on the panel, so it survives a reload and reaches the script.
+        onBlur={() => { if (subject !== (panel.note ?? '')) updatePanel(book.id, page.id, panel.id, { note: subject }) }}
         onKeyDown={(e) => { if (e.key === 'Enter') void generate() }}
       />
 
@@ -313,7 +317,7 @@ function LetteringSection({ book, page, panel }: { book: Book; page: Page; panel
 
                 <textarea
                   className="field resize-y py-1.5 text-xs"
-                  rows={2}
+                  rows={3}
                   value={balloon.text}
                   placeholder="What is said…"
                   aria-label="Balloon text"
@@ -376,7 +380,7 @@ export function PanelInspector({ book, page }: { book: Book; page: Page }) {
       {panel ? (
         <div className="space-y-5 p-4">
           <p className="text-sm font-semibold text-ink">Panel {panelIndex + 1}</p>
-          <GenerateSection book={book} page={page} panel={panel} panelIndex={panelIndex} />
+          <GenerateSection key={panel.id} book={book} page={page} panel={panel} panelIndex={panelIndex} />
           <ArtworkSection book={book} page={page} panel={panel} panelIndex={panelIndex} />
           <LetteringSection book={book} page={page} panel={panel} />
         </div>

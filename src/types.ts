@@ -58,6 +58,13 @@ export interface Panel {
   id: string
   /** Key into the asset store, or null while the panel is still empty. */
   assetId: string | null
+  /**
+   * What this panel shows, in words — the drawing brief. A generated story
+   * fills it in, the picture-maker starts from it, and the exported script
+   * prints it where the artwork is still to come. Absent on panels made
+   * before there was anywhere to write it down.
+   */
+  note?: string
   /** Framing of the artwork: 1 = fit the frame, higher crops in. */
   zoom: number
   /** Pan within the frame, -1 to 1, 0 being centred. */

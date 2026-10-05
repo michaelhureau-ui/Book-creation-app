@@ -1,4 +1,4 @@
-import type { Balloon, Page, Panel } from '@/types'
+import type { Balloon, BalloonKind, Page, Panel } from '@/types'
 import { frameToRect, layoutOf, type PageGeometry } from '@/lib/graphic/layouts'
 
 export type TrimId = 'comic' | 'a4' | 'square'
@@ -49,24 +49,51 @@ export function pageGeometry(opts: RenderOptions): PageGeometry {
 
 // ── Text ─────────────────────────────────────────────────────────────────────
 
-/** Greedy wrap that also honours the line breaks the writer typed. */
-function wrapText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
+/** Split a word that cannot fit on a line of its own, as a letterer would. */
+function breakWord(ctx: CanvasRenderingContext2D, word: string, maxWidth: number): string[] {
+  const parts: string[] = []
+  let part = ''
+  for (const char of word) {
+    const candidate = part + char
+    if (part && ctx.measureText(candidate).width > maxWidth) {
+      parts.push(part)
+      part = char
+    } else {
+      part = candidate
+    }
+  }
+  if (part) parts.push(part)
+  return parts
+}
+
+/**
+ * Greedy wrap that also honours the line breaks the writer typed. `broke` says
+ * a word had to be split to fit, which the caller treats as a reason to try a
+ * smaller size first — splitting a word is the last resort, not the first.
+ */
+function wrapText(
+  ctx: CanvasRenderingContext2D, text: string, maxWidth: number,
+): { lines: string[]; broke: boolean } {
   const lines: string[] = []
+  let broke = false
   for (const paragraph of text.split('\n')) {
     if (!paragraph.trim()) { lines.push(''); continue }
     let line = ''
     for (const word of paragraph.split(/\s+/).filter(Boolean)) {
       const candidate = line ? `${line} ${word}` : word
-      if (ctx.measureText(candidate).width > maxWidth && line) {
-        lines.push(line)
-        line = word
-      } else {
-        line = candidate
-      }
+      if (ctx.measureText(candidate).width <= maxWidth) { line = candidate; continue }
+      if (line) { lines.push(line); line = '' }
+      if (ctx.measureText(word).width <= maxWidth) { line = word; continue }
+      // Nothing to wrap at: a single run of characters wider than the line.
+      // Breaking it beats letting it run out past the balloon.
+      const parts = breakWord(ctx, word, maxWidth)
+      if (parts.length > 1) broke = true
+      lines.push(...parts.slice(0, -1))
+      line = parts[parts.length - 1] ?? ''
     }
     if (line) lines.push(line)
   }
-  return lines
+  return { lines, broke }
 }
 
 function roundedRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
@@ -123,30 +150,144 @@ function burst(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h
   ctx.closePath()
 }
 
-interface Rect { x: number; y: number; w: number; h: number }
+export interface Rect { x: number; y: number; w: number; h: number }
 
-function drawBalloon(ctx: CanvasRenderingContext2D, balloon: Balloon, panel: Rect, scale: number): void {
-  const text = balloon.text.trim() || '…'
-  const boxW = Math.max(40 * scale, balloon.width * panel.w)
-  const fontSize = balloon.kind === 'sfx'
+export interface BalloonLayout {
+  /** Centre of the drawn balloon — not necessarily where the writer put it. */
+  cx: number
+  cy: number
+  w: number
+  h: number
+  font: string
+  fontSize: number
+  lineHeight: number
+  padding: number
+  lines: string[]
+}
+
+/** Lettering never shrinks below this, in page pixels at scale 1. */
+const MIN_FONT = 7.5
+/** Enough steps to go from a full panel down to the floor. */
+const FIT_STEPS = 16
+/**
+ * How tall a balloon may get relative to its width before it is widened.
+ * A balloon twenty lines deep and six words across reads like a column of
+ * newsprint, not like someone speaking.
+ */
+const TALL_LIMIT = 1
+
+function clampTo(value: number, lo: number, hi: number): number {
+  // A balloon wider than the room it has is centred rather than pinned.
+  if (lo > hi) return (lo + hi) / 2
+  return Math.min(hi, Math.max(lo, value))
+}
+
+function baseFontSize(kind: BalloonKind, boxW: number, scale: number): number {
+  return kind === 'sfx'
     ? Math.max(20 * scale, boxW * 0.19)
     : Math.max(11 * scale, Math.min(boxW * 0.115, 15 * scale))
+}
 
+/**
+ * Where a balloon lands and how its text is set.
+ *
+ * A panel is clipped when it is drawn, so lettering that does not fit is not
+ * merely ugly — it disappears. Long lettering therefore widens toward the
+ * panel first, the way a letterer reaches for more width before touching the
+ * type size, and only shrinks the type once there is no width left. The centre
+ * is then held inside the panel, so a balloon placed near an edge slides in
+ * rather than being cut in half.
+ */
+export function layoutBalloon(
+  ctx: CanvasRenderingContext2D, balloon: Balloon, panel: Rect, scale: number,
+): BalloonLayout {
+  const text = balloon.text.trim() || '…'
+  const shown = balloon.kind === 'sfx' ? text.toUpperCase() : text
   const weight = balloon.kind === 'shout' || balloon.kind === 'sfx' ? '700' : '400'
-  ctx.font = `${weight} ${fontSize}px ${LETTERING}`
+
+  // A letterer keeps the balloon off the border; so does this.
+  const inset = Math.max(3 * scale, Math.min(panel.w, panel.h) * 0.025)
+  const maxW = Math.max(24 * scale, panel.w - inset * 2)
+  const maxH = Math.max(24 * scale, panel.h - inset * 2)
+
+  const measure = (boxW: number, fontSize: number) => {
+    const font = `${weight} ${fontSize}px ${LETTERING}`
+    ctx.font = font
+    const padding = fontSize * (balloon.kind === 'caption' ? 0.7 : 0.95)
+    const inner = Math.max(fontSize, boxW - padding * 2)
+    const { lines, broke } = wrapText(ctx, shown, inner)
+    const lineHeight = fontSize * 1.28
+    const widest = Math.max(...lines.map((l) => ctx.measureText(l).width), 1)
+    return {
+      font, lines, padding, lineHeight, fontSize, broke,
+      w: Math.min(inner, widest) + padding * 2,
+      h: lines.length * lineHeight + padding * 2,
+    }
+  }
+
+  const wanted = Math.min(maxW, Math.max(40 * scale, balloon.width * panel.w))
+  let boxW = wanted
+  let fontSize = baseFontSize(balloon.kind, wanted, scale)
+  let box = measure(boxW, fontSize)
+  // A word that had to be split is a fit problem too — and for a sound effect,
+  // whose type is sized from its own box, shrinking is the only thing that
+  // helps: widening grows the lettering in step and never closes the gap.
+  const overflows = (): boolean => box.h > maxH || box.broke
+  // Short lettering keeps exactly the width the writer chose; only a balloon
+  // that has run tall reaches for more.
+  const tooTall = (): boolean => box.h > box.w * TALL_LIMIT
+
+  for (let i = 0; (overflows() || tooTall()) && boxW < maxW && i < FIT_STEPS; i++) {
+    boxW = Math.min(maxW, boxW * 1.2)
+    box = measure(boxW, fontSize)
+  }
+  for (let i = 0; overflows() && fontSize > MIN_FONT * scale && i < FIT_STEPS; i++) {
+    fontSize = Math.max(MIN_FONT * scale, fontSize * 0.9)
+    box = measure(boxW, fontSize)
+  }
+
+  const w = box.w
+  const h = box.h
+  return {
+    cx: clampTo(panel.x + balloon.x * panel.w, panel.x + inset + w / 2, panel.x + panel.w - inset - w / 2),
+    cy: clampTo(panel.y + balloon.y * panel.h, panel.y + inset + h / 2, panel.y + panel.h - inset - h / 2),
+    w,
+    h,
+    font: box.font,
+    fontSize: box.fontSize,
+    lineHeight: box.lineHeight,
+    padding: box.padding,
+    lines: box.lines,
+  }
+}
+
+/**
+ * A context kept only for measuring text outside a draw, so the editor can put
+ * a balloon's drag handle exactly where the balloon is rendered.
+ */
+let measuring: CanvasRenderingContext2D | null | undefined
+
+export function balloonPlacement(
+  balloon: Balloon, panel: Rect, scale: number,
+): { cx: number; cy: number } | null {
+  if (measuring === undefined) {
+    measuring = typeof document === 'undefined'
+      ? null
+      : document.createElement('canvas').getContext('2d')
+  }
+  if (!measuring) return null
+  const { cx, cy } = layoutBalloon(measuring, balloon, panel, scale)
+  return { cx, cy }
+}
+
+function drawBalloon(ctx: CanvasRenderingContext2D, balloon: Balloon, panel: Rect, scale: number): void {
+  const { cx, cy, w, h, font, fontSize, lineHeight, padding, lines } =
+    layoutBalloon(ctx, balloon, panel, scale)
+
+  ctx.font = font
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
 
-  const padding = fontSize * (balloon.kind === 'caption' ? 0.7 : 0.95)
-  const lines = wrapText(ctx, balloon.kind === 'sfx' ? text.toUpperCase() : text, boxW - padding * 2)
-  const lineHeight = fontSize * 1.28
-  const textW = Math.min(boxW - padding * 2, Math.max(...lines.map((l) => ctx.measureText(l).width), 1))
-  const boxH = lines.length * lineHeight + padding * 2
-
-  const cx = panel.x + balloon.x * panel.w
-  const cy = panel.y + balloon.y * panel.h
-  const w = textW + padding * 2
-  const h = boxH
   const x = cx - w / 2
   const y = cy - h / 2
 
