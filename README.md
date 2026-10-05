@@ -181,7 +181,14 @@ list says it supports the call being made, and settled names are preferred over
 previews and moving aliases: the list carries models that cannot serve these
 endpoints at all, and one of them answers `This model only supports
 Interactions API`. If the chosen model turns out not to write, the endpoint
-falls back to one that does rather than waiting for a redeploy. Pin either with `GOOGLE_IMAGE_MODEL`
+falls back to one that does rather than waiting for a redeploy.
+
+That fallback covers one trap in particular. The list offers models from every
+tier, so the newest is often one the key cannot pay for — Google answers `402
+Your prepayment credits are depleted`, which reads to a writer as *you have run
+out* when in truth the next model down would have written the book for nothing.
+A refusal like that is treated as the wrong model rather than an empty account,
+and the next candidate is tried. Pin either with `GOOGLE_IMAGE_MODEL`
 or `GOOGLE_TEXT_MODEL` (`OPENAI_TEXT_MODEL` for OpenAI) to override that.
 
 Without any key the app says so plainly and everything else still works. Both
@@ -232,6 +239,19 @@ is the recording, so what you watch is exactly what lands in the file. Out comes
 a `.webm` (or `.mp4` on Safari) to keep or send. A novel has no pictures to film,
 so there it makes a title sequence instead, and says so.
 
+**It has sound.** A written score — a few oscillators on a minor pentatonic, so
+it cannot land on a sour chord however the shots fall — turns the harmony over
+at each chapter, sounds a page for every panel, and thumps where something bangs.
+Web Audio can be mixed into what the recorder captures, so the music is in the
+saved file.
+
+**And it talks.** The browser reads the film aloud as it plays: the title, each
+chapter, and every balloon with the speaker named. That part is *not* in the
+saved file, and cannot be — no browser lets a page capture its own speech, and
+the alternative, a speech API, would be one call a line and would empty an
+allowance long before it finished a book. So the voice is heard while it plays;
+the words are in the balloons either way.
+
 The *look* of a film comes from the artwork, not the film: pick **3D animated
 film**, **Storybook painting**, **Pencil drawing** or any other style when the
 pictures are made, and the movie inherits it.
@@ -261,7 +281,7 @@ src/
 │   ├── stats.ts         word counts, reading time, panel counts
 │   ├── cover.ts         jacket palettes and layouts
 │   ├── graphic/         layouts · pages · assets · drawing · generation · renderer
-│   ├── movie/           the shot list of a film, and recording it
+│   ├── movie/           the shot list of a film, its score and voice, and recording it
 │   ├── printing.ts      what goes on each sheet of paper
 │   ├── story/           written-story requests, and turning one into a book
 │   ├── useSpeech.ts     dictation through the browser's own recogniser
@@ -325,7 +345,9 @@ colour parsing, the page counts each length promises, what lands on each printed
 story set in a show asks for its cast by how they really look and keeps names
 out of the drawing briefs, that a balloon's tail reaches toward the speaker and
 that a caption never grows one, the grammar of a film — what is shown, in what
-order, for how long, and which way the camera travels over it — the drawing pass (that it
+order, for how long, and which way the camera travels over it — that a model
+refused for billing is swapped rather than reported as an empty account, what
+the voice reads over each shot, the drawing pass (that it
 stops dead on a spent allowance, skips a single refused picture, and keeps what
 it drew), balloon fitting (that a long speech stays inside the panel it is
 drawn in, and a sound effect shrinks rather than splitting), reading a written

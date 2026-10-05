@@ -6,6 +6,8 @@ import { loadImages } from '@/lib/graphic/assets'
 import {
   ease, filmSeconds, shotAt, shotList, type FilmOptions, type Move, type Shot,
 } from '@/lib/movie/film'
+import { createScore } from '@/lib/movie/sound'
+import { createNarrator } from '@/lib/movie/narrator'
 
 /** The shots that move across something drawn, rather than being typeset. */
 type MovingShot = Extract<Shot, { move: Move }>
@@ -180,10 +182,18 @@ export interface Film {
  * runs in real time because that is what MediaRecorder captures — a book is
  * watched at the speed it is read.
  */
+export interface SoundOptions {
+  /** Music and effects, which are mixed into the saved file. */
+  music: boolean
+  /** The browser reading it aloud, which plays here but cannot be recorded. */
+  voice: boolean
+}
+
 export async function recordFilm(
   book: Book,
   canvas: HTMLCanvasElement,
   options: FilmOptions,
+  sound: SoundOptions,
   onProgress: (progress: FilmProgress) => void,
   signal?: AbortSignal,
 ): Promise<Film> {
@@ -211,6 +221,12 @@ export async function recordFilm(
   if (!mime) throw new Error('This browser cannot record video.')
 
   const stream = canvas.captureStream(FPS)
+  // Web Audio can be mixed into what the recorder captures, so the score ends
+  // up in the file. The browser's voice cannot be: no browser exposes it.
+  const score = sound.music ? createScore() : null
+  for (const track of score?.tracks ?? []) stream.addTrack(track)
+  const narrator = createNarrator(sound.voice)
+
   const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 6_000_000 })
   const chunks: Blob[] = []
   recorder.ondataavailable = (event) => { if (event.data.size > 0) chunks.push(event.data) }
@@ -219,11 +235,21 @@ export async function recordFilm(
   recorder.start(250)
 
   const started = performance.now()
+  let sounded: Shot | null = null
+  let shotIndex = -1
   await new Promise<void>((resolve) => {
     const step = (): void => {
       const time = (performance.now() - started) / 1000
       if (signal?.aborted || time >= seconds) { resolve(); return }
       drawFrame(ctx, book, shots, time, pages)
+      // Cue the sound once per shot, as it comes on screen.
+      const current = shotAt(shots, time)?.shot ?? null
+      if (current && current !== sounded) {
+        sounded = current
+        shotIndex++
+        score?.cue(current, shotIndex)
+        narrator.speak(current)
+      }
       onProgress({ share: time / seconds, label: 'Filming…' })
       requestAnimationFrame(step)
     }
@@ -234,6 +260,8 @@ export async function recordFilm(
   drawFrame(ctx, book, shots, Math.max(0, seconds - 0.05), pages)
   await new Promise((resolve) => setTimeout(resolve, 200))
   recorder.stop()
+  narrator.cancel()
+  await score?.stop()
   stream.getTracks().forEach((track) => track.stop())
   await finished
 

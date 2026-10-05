@@ -189,9 +189,55 @@ describe('a model that cannot write at all', () => {
   it('recognises the provider saying the model is the wrong one', () => {
     expect(looksLikeWrongModel(400, '{"error":{"message":"This model only supports Interactions API."}}')).toBe(true)
     expect(looksLikeWrongModel(404, 'models/foo is not found for API version v1beta')).toBe(true)
-    // A quota or a key problem is not solved by a different model.
-    expect(looksLikeWrongModel(429, 'You exceeded your current quota')).toBe(false)
+    // A key problem is not solved by a different model.
     expect(looksLikeWrongModel(400, 'API key not valid')).toBe(false)
+    expect(looksLikeWrongModel(500, 'internal')).toBe(false)
+  })
+
+  /**
+   * Google's list offers models from every tier, so the newest is often one the
+   * key cannot pay for. It answers 402 "your prepayment credits are depleted",
+   * which reads to a writer as "you have run out" when the next model down
+   * would have written the book for nothing.
+   */
+  it('treats a model the account cannot pay for as the wrong model', () => {
+    expect(looksLikeWrongModel(402, 'Your prepayment credits are depleted.')).toBe(true)
+    expect(looksLikeWrongModel(429, 'Quota exceeded for this model on the free tier')).toBe(true)
+  })
+
+  it('moves down the list when a model wants money the account has not got', async () => {
+    const tried: string[] = []
+    const fetchMock = vi.fn(async (url: string) => {
+      const target = String(url)
+      if (target.includes('/models?')) {
+        return jsonResponse({
+          models: ['gemini-3.8-flash', 'gemini-2.5-flash'].map((name) => ({
+            name: `models/${name}`, supportedGenerationMethods: ['generateContent'],
+          })),
+        })
+      }
+      const model = /models\/([^:]+):/.exec(target)?.[1] ?? ''
+      tried.push(model)
+      if (model === 'gemini-3.8-flash') {
+        return jsonResponse({ error: { message: 'Your prepayment credits are depleted.' } }, 402)
+      }
+      return jsonResponse({ candidates: [{ content: { parts: [{ text: '{"title":"T","chapters":[{"title":"One","summary":"S"}]}' }] } }] })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const { res, out } = makeRes()
+    await handler({ method: 'POST', body: { idea: 'a fox at sea' } }, res)
+    expect(out.code).toBe(200)
+    expect(tried).toEqual(['gemini-3.8-flash', 'gemini-2.5-flash'])
+  })
+
+  it('gives up with the provider’s own words when no model will do', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) =>
+      String(url).includes('/models?')
+        ? jsonResponse({ models: [{ name: 'models/gemini-2.5-flash', supportedGenerationMethods: ['generateContent'] }] })
+        : jsonResponse({ error: { message: 'Your prepayment credits are depleted.' } }, 402)))
+    const { res, out } = makeRes()
+    await handler({ method: 'POST', body: { idea: 'a fox at sea' } }, res)
+    expect(errorOf(out.body).message).toContain('prepayment credits are depleted')
   })
 
   it('falls back to a model that can, rather than needing a redeploy', async () => {

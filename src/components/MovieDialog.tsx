@@ -7,6 +7,7 @@ import { slugify } from '@/lib/book'
 import { bookStats } from '@/lib/stats'
 import { DEFAULT_FILM, filmSeconds, shotList, type MotionStyle } from '@/lib/movie/film'
 import { fileExtension, pickMimeType, recordFilm, type Film, type FilmProgress } from '@/lib/movie/record'
+import { speechSupported } from '@/lib/movie/narrator'
 import type { Book } from '@/types'
 
 const MOTIONS: { id: MotionStyle; label: string; hint: string }[] = [
@@ -38,6 +39,8 @@ export function MovieDialog({ book, onClose }: { book: Book; onClose: () => void
   const abortRef = useRef<AbortController | null>(null)
   const [motion, setMotion] = useState<MotionStyle>(DEFAULT_FILM.motion)
   const [pace, setPace] = useState<number>(DEFAULT_FILM.pace)
+  const [music, setMusic] = useState(true)
+  const [voice, setVoice] = useState(true)
   const [progress, setProgress] = useState<FilmProgress | null>(null)
   const [film, setFilm] = useState<Film | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -59,7 +62,8 @@ export function MovieDialog({ book, onClose }: { book: Book; onClose: () => void
     const controller = new AbortController()
     abortRef.current = controller
     try {
-      setFilm(await recordFilm(book, canvas, { motion, pace }, setProgress, controller.signal))
+      setFilm(await recordFilm(
+        book, canvas, { motion, pace }, { music, voice }, setProgress, controller.signal))
     } catch (err) {
       if (!controller.signal.aborted) {
         setError(err instanceof Error && err.message !== 'stopped'
@@ -166,11 +170,51 @@ export function MovieDialog({ book, onClose }: { book: Book; onClose: () => void
               </div>
             </div>
 
+            <div>
+              <span className="label">Sound</span>
+              <div className="space-y-2 rounded-lg border border-rule bg-paper-sunk/50 p-3">
+                <label className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={music}
+                    onChange={(e) => setMusic(e.target.checked)}
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-ink">Music and sound effects</span>
+                    <span className="block text-xs text-ink-faint">
+                      A score that turns over at each chapter, a sound for every page, and a thump
+                      where something bangs. This is recorded into the film.
+                    </span>
+                  </span>
+                </label>
+
+                <label className={clsx('flex items-start gap-2', !speechSupported() && 'opacity-50')}>
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={voice && speechSupported()}
+                    disabled={!speechSupported()}
+                    onChange={(e) => setVoice(e.target.checked)}
+                  />
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-ink">Read it out loud</span>
+                    <span className="block text-xs text-ink-faint">
+                      {speechSupported()
+                        ? 'The story is spoken while it plays, with each character’s lines as they come up. No browser lets a page record its own voice, so this is heard here rather than saved into the film — the words are in the balloons either way.'
+                        : 'This browser has no voice to read with.'}
+                    </span>
+                  </span>
+                </label>
+              </div>
+            </div>
+
             <p className="text-xs text-ink-faint">
               The film is made at the speed you would watch it, so it takes about {clock(length)} to
-              record — the picture above is what is being filmed. The look comes from the artwork
-              itself: choose <em>3D animated film</em>, <em>Storybook painting</em> or any other
-              style when you make the pictures, and the movie inherits it.
+              record — the picture above is what is being filmed, and the sound is what you will
+              hear. The look comes from the artwork itself: choose <em>3D animated film</em>,{' '}
+              <em>Storybook painting</em> or any other style when you make the pictures, and the
+              movie inherits it.
             </p>
           </>
         )}

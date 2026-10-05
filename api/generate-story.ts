@@ -293,19 +293,48 @@ export function rankTextModel(name: string): [number, number, number] {
  * only when Google says it supports generateContent. Assuming it does when the
  * list is silent is how an unusable one gets through.
  */
-export function chooseGoogleTextModel(models: GoogleModel[]): string | null {
-  const usable = models
+export function chooseGoogleTextModels(models: GoogleModel[]): string[] {
+  return models
     .filter((m) => (m.supportedGenerationMethods ?? []).includes('generateContent'))
     .map((m) => (m.name ?? '').replace(/^models\//, ''))
     .filter((name) => /^gemini-/i.test(name))
     // Image, speech, embedding and realtime variants cannot write a chapter.
     .filter((name) => !/image|vision|embedding|tts|audio|live|thinking|omni|robotics/i.test(name))
-  if (usable.length === 0) return null
-  return usable.sort((a, b) => {
-    const [fa, sa, va] = rankTextModel(a)
-    const [fb, sb, vb] = rankTextModel(b)
-    return fb - fa || sb - sa || vb - va || a.localeCompare(b)
-  })[0]
+    .sort((a, b) => {
+      const [fa, sa, va] = rankTextModel(a)
+      const [fb, sb, vb] = rankTextModel(b)
+      return fb - fa || sb - sa || vb - va || a.localeCompare(b)
+    })
+}
+
+export function chooseGoogleTextModel(models: GoogleModel[]): string | null {
+  return chooseGoogleTextModels(models)[0] ?? null
+}
+
+/**
+ * Whether a failure means this model is not one this account may use — it is
+ * not there, it cannot do this, or it costs money the account has not got.
+ *
+ * The list offers models from every tier, so the newest one is often one the
+ * key cannot pay for: Google answers 402 "your prepayment credits are
+ * depleted", which reads to a writer as "you have run out" when in truth the
+ * next model down would have written the book for nothing. Worth trying
+ * another; everything else would fail the same way twice.
+ */
+export function looksLikeWrongModel(status: number, body: string): boolean {
+  const lower = body.toLowerCase()
+  if (status === 402) return true
+  if (status === 429 || status === 400 || status === 404) {
+    return lower.includes('only supports')
+      || lower.includes('is not found')
+      || lower.includes('not supported for')
+      || lower.includes('is not supported')
+      || lower.includes('prepayment')
+      || lower.includes('billing')
+      || lower.includes('free tier')
+      || lower.includes('quota')
+  }
+  return false
 }
 
 /**
@@ -328,7 +357,9 @@ export function providerReason(body: string): string {
 
 /** Attach the provider's own words to an error that only has a status number. */
 export function withReason(error: StoryError, body: string): StoryError {
-  if (error.code !== 'provider_error') return error
+  if (error.code !== 'provider_error' && error.code !== 'quota' && error.code !== 'rate_limited') {
+    return error
+  }
   const reason = providerReason(body)
   return reason ? { ...error, message: `${error.message.replace(/\s*Try again in a moment\.$/, '')} ${reason}` } : error
 }
@@ -352,23 +383,12 @@ export function resetGoogleTextModelCache(): void {
   cachedGoogleModel = null
 }
 
-/**
- * Whether a failure is the model's fault rather than the request's — it cannot
- * do this at all, or it is not there. Worth trying a different model for;
- * everything else would fail the same way twice.
- */
-export function looksLikeWrongModel(status: number, body: string): boolean {
-  if (status !== 400 && status !== 404) return false
-  const lower = body.toLowerCase()
-  return lower.includes('only supports')
-    || lower.includes('is not found')
-    || lower.includes('not supported for')
-    || lower.includes('is not supported')
-}
+/** At most this many models are tried before giving up, to bound the wait. */
+const MODEL_ATTEMPTS = 4
 
-async function resolveGoogleModel(key: string, signal: AbortSignal): Promise<string> {
-  if (process.env.GOOGLE_TEXT_MODEL) return process.env.GOOGLE_TEXT_MODEL
-  if (cachedGoogleModel) return cachedGoogleModel
+async function resolveGoogleModels(key: string, signal: AbortSignal): Promise<string[]> {
+  if (process.env.GOOGLE_TEXT_MODEL) return [process.env.GOOGLE_TEXT_MODEL]
+  if (cachedGoogleModel) return [cachedGoogleModel]
   try {
     const res = await fetch(`${GOOGLE_BASE}/models?pageSize=200`, {
       headers: { 'x-goog-api-key': key },
@@ -376,11 +396,11 @@ async function resolveGoogleModel(key: string, signal: AbortSignal): Promise<str
     })
     if (res.ok) {
       const body = await res.json() as { models?: GoogleModel[] }
-      const chosen = chooseGoogleTextModel(body.models ?? [])
-      if (chosen) { cachedGoogleModel = chosen; return chosen }
+      const ranked = chooseGoogleTextModels(body.models ?? [])
+      if (ranked.length > 0) return ranked.slice(0, MODEL_ATTEMPTS)
     }
   } catch { /* fall through to the default */ }
-  return GOOGLE_FALLBACK_MODEL
+  return [GOOGLE_FALLBACK_MODEL]
 }
 
 type Written =
@@ -411,42 +431,46 @@ async function writeWithGoogle(
       signal,
     })
 
-  let model = await resolveGoogleModel(key, signal)
-  let res = await send(model, true)
+  const candidates = await resolveGoogleModels(key, signal)
+  // The fallback is always worth one last go: the listed models may all be
+  // ones this key cannot use.
+  if (!candidates.includes(GOOGLE_FALLBACK_MODEL)) candidates.push(GOOGLE_FALLBACK_MODEL)
+
+  let res: Response | null = null
+  let model = candidates[0]
   let body = ''
 
-  if (!res.ok) {
+  for (const candidate of candidates) {
+    model = candidate
+    res = await send(model, true)
+    if (res.ok) break
     body = await res.text().catch(() => '')
 
     // A 400 we cannot otherwise explain is a complaint about the request, and
     // asking for JSON is the least standard thing in it. Try again plainly
-    // before giving up — but not when the key, the quota or a refusal is the
-    // real problem, where a second attempt only wastes the writer's time.
+    // before giving up on this model.
     if (res.status === 400 && !looksLikeWrongModel(res.status, body)
         && describeProviderFailure(res.status, body).code === 'provider_error') {
       res = await send(model, false)
-      body = res.ok ? '' : await res.text().catch(() => '')
+      if (res.ok) break
+      body = await res.text().catch(() => '')
     }
 
-    // Google lists models this endpoint cannot use, and which one is listed
-    // changes over time. Rather than need a redeploy every time the list moves,
-    // forget the choice and fall back to one known to write.
-    if (!res.ok && looksLikeWrongModel(res.status, body) && model !== GOOGLE_FALLBACK_MODEL) {
-      console.error(`[generate-story] ${model} cannot write; falling back to ${GOOGLE_FALLBACK_MODEL}`)
-      cachedGoogleModel = null
-      model = GOOGLE_FALLBACK_MODEL
-      res = await send(model, true)
-      body = res.ok ? '' : await res.text().catch(() => '')
-    }
+    // The list offers models from every tier, and one the key cannot use looks
+    // from the outside exactly like having run out. Try the next one down
+    // rather than telling a writer their account is empty.
+    if (!looksLikeWrongModel(res.status, body)) break
+    console.error(`[generate-story] ${model} answered ${res.status}; trying the next model`)
+    cachedGoogleModel = null
   }
 
-  if (!res.ok) {
+  if (!res || !res.ok) {
     // Reaches the deployment's runtime logs. The key is never part of this.
-    console.error(`[generate-story] ${model} answered ${res.status}: ${body.slice(0, 500)}`)
+    console.error(`[generate-story] ${model} answered ${res?.status ?? 0}: ${body.slice(0, 500)}`)
     return {
       ok: false,
-      status: res.status,
-      error: withReason(describeProviderFailure(res.status, body), body),
+      status: res?.status ?? 502,
+      error: withReason(describeProviderFailure(res?.status ?? 502, body), body),
     }
   }
 
