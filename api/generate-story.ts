@@ -33,18 +33,31 @@ export interface StoryError {
 export type StoryKind = 'prose' | 'graphic'
 export type StoryLength = 'short' | 'medium' | 'long'
 
-/** How much book each length asks for. Kept modest: a slow call is a dead one. */
+/**
+ * How much book each length asks for: about 50, 100 and 200 pages.
+ *
+ * A chapter is a call, and a call must finish well inside the function's
+ * ceiling — so the page count is reached with many small chapters rather than
+ * a few enormous ones. That is also what keeps a half-finished long book
+ * worth having: each chapter is saved as it lands.
+ */
 export const SHAPES: Record<StoryKind, Record<StoryLength, { chapters: number; pages: number }>> = {
   prose: {
-    short: { chapters: 3, pages: 2 },
-    medium: { chapters: 5, pages: 3 },
-    long: { chapters: 8, pages: 3 },
+    short: { chapters: 10, pages: 5 },
+    medium: { chapters: 20, pages: 5 },
+    long: { chapters: 40, pages: 5 },
   },
   graphic: {
-    short: { chapters: 1, pages: 4 },
-    medium: { chapters: 2, pages: 5 },
-    long: { chapters: 3, pages: 6 },
+    short: { chapters: 10, pages: 5 },
+    medium: { chapters: 20, pages: 5 },
+    long: { chapters: 40, pages: 5 },
   },
+}
+
+/** Roughly how many pages a length comes to — what the app offers it as. */
+export function pagesIn(kind: StoryKind, length: StoryLength): number {
+  const shape = SHAPES[kind][length] ?? SHAPES[kind].medium
+  return shape.chapters * shape.pages
 }
 
 export const MAX_IDEA_LENGTH = 1200
@@ -433,7 +446,7 @@ async function writeWithOpenAi(
 }
 
 /** A chapter needs far more room than an outline; neither should run away. */
-const OUTLINE_TOKENS = 1600
+const OUTLINE_TOKENS = 8000
 const CHAPTER_TOKENS = 8000
 /** Stay under Vercel's function ceiling with room left to report a timeout. */
 const TIMEOUT_MS = 55_000

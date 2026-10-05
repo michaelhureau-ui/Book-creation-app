@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { Icons } from '@/components/Icons'
+import { MicButton } from '@/components/MicButton'
 import { useStore } from '@/lib/store'
 import { ACCEPTED_TYPES, importImage } from '@/lib/graphic/assets'
 import { BALLOON_LABELS } from '@/lib/graphic/pages'
@@ -86,18 +87,30 @@ function GenerateSection({ book, page, panel, panelIndex }: { book: Book; page: 
     <section className="space-y-2">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-faint">Make a picture</h3>
 
-      <input
-        className="field py-1.5 text-xs"
-        value={subject}
-        maxLength={MAX_SUBJECT_LENGTH}
-        placeholder="a red fox on a night bus"
-        aria-label="What should be in the panel"
-        disabled={busy}
-        onChange={(e) => setSubject(e.target.value)}
-        // Kept on the panel, so it survives a reload and reaches the script.
-        onBlur={() => { if (subject !== (panel.note ?? '')) updatePanel(book.id, page.id, panel.id, { note: subject }) }}
-        onKeyDown={(e) => { if (e.key === 'Enter') void generate() }}
-      />
+      <div className="flex items-center gap-1.5">
+        <input
+          className="field py-1.5 text-xs"
+          value={subject}
+          maxLength={MAX_SUBJECT_LENGTH}
+          placeholder="a red fox on a night bus"
+          aria-label="What should be in the panel"
+          disabled={busy}
+          onChange={(e) => setSubject(e.target.value)}
+          // Kept on the panel, so it survives a reload and reaches the script.
+          onBlur={() => { if (subject !== (panel.note ?? '')) updatePanel(book.id, page.id, panel.id, { note: subject }) }}
+          onKeyDown={(e) => { if (e.key === 'Enter') void generate() }}
+        />
+        <MicButton
+          label="Say what should be in the panel"
+          disabled={busy}
+          className="shrink-0"
+          onText={(said) => {
+            const next = subject ? `${subject} ${said}` : said
+            setSubject(next)
+            updatePanel(book.id, page.id, panel.id, { note: next })
+          }}
+        />
+      </div>
 
       <div className="flex gap-1.5">
         <select
@@ -315,15 +328,26 @@ function LetteringSection({ book, page, panel }: { book: Book; page: Page; panel
                   </button>
                 </div>
 
-                <textarea
-                  className="field resize-y py-1.5 text-xs"
-                  rows={3}
-                  value={balloon.text}
-                  placeholder="What is said…"
-                  aria-label="Balloon text"
-                  onFocus={() => selectBalloon(balloon.id)}
-                  onChange={(e) => updateBalloon(book.id, page.id, panel.id, balloon.id, { text: e.target.value })}
-                />
+                <div className="flex items-start gap-1.5">
+                  <textarea
+                    className="field resize-y py-1.5 text-xs"
+                    rows={3}
+                    value={balloon.text}
+                    placeholder="What is said…"
+                    aria-label="Balloon text"
+                    onFocus={() => selectBalloon(balloon.id)}
+                    onChange={(e) => updateBalloon(book.id, page.id, panel.id, balloon.id, { text: e.target.value })}
+                  />
+                  <MicButton
+                    label="Say what goes in this balloon"
+                    className="mt-0.5 shrink-0"
+                    onText={(said) => {
+                      selectBalloon(balloon.id)
+                      updateBalloon(book.id, page.id, panel.id, balloon.id,
+                        { text: balloon.text ? `${balloon.text} ${said}` : said })
+                    }}
+                  />
+                </div>
 
                 <div className="mt-1.5">
                   <Slider

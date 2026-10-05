@@ -48,13 +48,31 @@ Everything autosaves.
 what the book is about — "a fox who runs a lost property office at the bottom of
 the sea" — and writes it: a novel with chapters and pages, or a graphic novel
 laid out as pages of panels with the dialogue already in balloons. Pick how long
-it should be and who it is for; the audience shapes the vocabulary, not just the
-subject matter. The result is an ordinary book in your library, yours to rewrite.
+it should be — about 50, 100 or 200 pages — and who it is for; the audience
+shapes the vocabulary, not just the subject matter. The result is an ordinary
+book in your library, yours to rewrite.
 
 The book is planned first and then written a chapter at a time, so there is a
 real progress bar rather than a spinner, and a long book cannot be cut off
-halfway by a single call running out of time. It needs the same API key as
-picture-making, below.
+halfway by a single call running out of time. Two hundred pages is forty calls
+and the better part of half an hour, so **each chapter is saved as it lands**:
+stopping early, closing the tab, or losing the connection leaves a shorter book
+in the library rather than nothing at all.
+
+For a graphic novel there is also **Draw the pictures too**, which fills in every
+panel from the brief the story wrote for it. A book this long is hundreds of
+pictures and an image allowance runs out long before that, so it stops at the
+first sign of a spent quota and keeps everything drawn up to that point — the
+rest can be drawn panel by panel whenever you like.
+
+Both need the same API key as picture-making, below.
+
+**Say it instead of typing it.** A microphone sits beside the chapter editor,
+the story idea, each panel's picture description, and each balloon. Speaking
+fills the box as typing would. This is the browser's own speech recognition
+rather than the image key's provider, so nothing is sent to the deployment and
+no allowance is spent — and it needs no setting up. Firefox has never shipped
+it, so there the button is simply not offered.
 
 **As many pages in a chapter as you want.** A chapter is written as a run of
 pages, listed above the editor — add one and keep writing, reorder them, delete
@@ -191,6 +209,7 @@ src/
 │   ├── cover.ts         jacket palettes and layouts
 │   ├── graphic/         layouts · pages · assets · drawing · generation · renderer
 │   ├── story/           written-story requests, and turning one into a book
+│   ├── useSpeech.ts     dictation through the browser's own recogniser
 │   └── export/          markdown · docx · epub · pdf · comic (+ shared options)
 └── components/
     ├── graphic/         PageCanvas, PageList, PanelInspector, DrawingBoard
@@ -246,7 +265,9 @@ The unit tests cover the parts worth pinning down — the HTML parser, chapter
 numbering, the page grouping and the rule for stepping a page between chapters,
 migrating a chapter written before pages existed, word counts, Markdown generation, backup import validation, panel
 layout geometry, the artwork crop maths, the drawing board's flood fill and
-colour parsing, balloon fitting (that a long speech stays inside the panel it is
+colour parsing, the page counts each length promises, the drawing pass (that it
+stops dead on a spent allowance, skips a single refused picture, and keeps what
+it drew), balloon fitting (that a long speech stays inside the panel it is
 drawn in, and a sound effect shrinks rather than splitting), reading a written
 story back from whatever shape the model replied in, that a page break the
 writer made really opens a new sheet, and both generators' prompt shaping, size and model

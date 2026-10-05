@@ -50,6 +50,9 @@ interface State {
   removeChapter: (bookId: string, chapterId: string) => void
   moveChapter: (bookId: string, from: number, to: number) => void
 
+  /** Append a written chapter, and any comic pages belonging to it. */
+  addStoryChapter: (bookId: string, chapter: Chapter, pages: Page[]) => void
+
   addProsePage: (bookId: string, chapterId: string) => void
   updateProsePage: (bookId: string, chapterId: string, pageId: string, content: string) => void
   removeProsePage: (bookId: string, chapterId: string, pageId: string) => void
@@ -254,6 +257,18 @@ export const useStore = create<State>((set, get) => {
 
     moveChapter: (bookId, from, to) =>
       patchBook(bookId, (b) => ({ ...b, chapters: move(b.chapters, from, to) })),
+
+    /**
+     * A long book is written a chapter at a time and saved as it goes, so
+     * stopping halfway — or losing the connection — leaves the chapters
+     * already written in the library rather than nothing at all.
+     */
+    addStoryChapter: (bookId, chapter, pages) =>
+      patchBook(bookId, (b) => ({
+        ...b,
+        chapters: [...b.chapters, chapter],
+        pages: [...b.pages, ...pages],
+      })),
 
     // ── Pages inside a chapter ─────────────────────────────────────────────
     addProsePage: (bookId, chapterId) => {

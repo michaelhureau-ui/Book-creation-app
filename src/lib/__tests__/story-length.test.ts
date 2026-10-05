@@ -1,0 +1,145 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { SHAPES, buildChapterPrompt, buildOutlinePrompt, pagesIn } from '../../../api/generate-story'
+import { drawPanels } from '@/lib/story/generate'
+import { GenerationFailed } from '@/lib/graphic/generate'
+import { createBook } from '@/lib/book'
+import { createPage, createPanel } from '@/lib/graphic/pages'
+import type { Book } from '@/types'
+
+vi.mock('@/lib/graphic/assets', () => ({
+  saveDrawing: vi.fn(async () => ({ id: 'asset', width: 1, height: 1, bytes: 1 })),
+}))
+
+/**
+ * Generation measures each picture through an `Image`, which jsdom never
+ * loads — so without this every panel waits out the four-second measuring
+ * timeout. Standing one in lets the drawing logic be tested at its own speed.
+ */
+beforeEach(() => {
+  vi.stubGlobal('URL', { ...URL, createObjectURL: () => 'blob:x', revokeObjectURL: () => {} })
+  vi.stubGlobal('Image', class {
+    naturalWidth = 1024
+    naturalHeight = 1536
+    onload: (() => void) | null = null
+    onerror: (() => void) | null = null
+    set src(_value: string) { queueMicrotask(() => this.onload?.()) }
+  })
+})
+
+afterEach(() => vi.unstubAllGlobals())
+
+describe('how long a book is', () => {
+  it('offers about fifty, a hundred and two hundred pages', () => {
+    for (const kind of ['prose', 'graphic'] as const) {
+      expect(pagesIn(kind, 'short')).toBe(50)
+      expect(pagesIn(kind, 'medium')).toBe(100)
+      expect(pagesIn(kind, 'long')).toBe(200)
+    }
+  })
+
+  /**
+   * A chapter is one call, and a call has to finish inside the function's
+   * ceiling. Reaching two hundred pages through a handful of enormous chapters
+   * would time out — and would lose everything when it did.
+   */
+  it('reaches the page count with many small chapters', () => {
+    for (const kind of ['prose', 'graphic'] as const) {
+      for (const length of ['short', 'medium', 'long'] as const) {
+        expect(SHAPES[kind][length].pages).toBeLessThanOrEqual(8)
+        expect(SHAPES[kind][length].chapters).toBeGreaterThanOrEqual(10)
+      }
+    }
+  })
+
+  it('asks the plan and each chapter for the counts the length means', () => {
+    expect(buildOutlinePrompt('a fox', 'prose', 'long', 'middle'))
+      .toContain(`exactly ${SHAPES.prose.long.chapters} chapters`)
+    const outline = { title: 'T', chapters: [{ title: 'One', summary: 'S' }] }
+    expect(buildChapterPrompt('a fox', 'prose', 'long', 'middle', outline, 0))
+      .toContain(`as ${SHAPES.prose.long.pages} pages`)
+  })
+})
+
+describe('drawing the panels of a written comic', () => {
+  function comic(notes: (string | null)[]): Book {
+    const book = createBook('Drawn', '', 'graphic')
+    book.id = 'book-1'
+    const page = createPage('four-grid', 'Page 1', null)
+    page.panels = notes.map((note) => ({ ...createPanel(), note: note ?? undefined }))
+    book.pages = [page]
+    return book
+  }
+
+  it('draws only the panels that say what they show', async () => {
+    const book = comic(['a fox', null, '   ', 'a bus'])
+    const placed: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true, status: 200,
+      json: async () => ({ image: 'aGk=', mime: 'image/png' }),
+    } as unknown as Response)))
+    const result = await drawPanels(book, 'color', (_p, panelId) => placed.push(panelId), () => {})
+    expect(result).toMatchObject({ drawn: 2, total: 2 })
+    expect(placed).toHaveLength(2)
+  })
+
+  it('stops the moment the allowance runs out, and keeps what it drew', async () => {
+    const book = comic(['one', 'two', 'three', 'four'])
+    let calls = 0
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      calls++
+      if (calls > 1) {
+        return {
+          ok: false, status: 429,
+          json: async () => ({ error: { code: 'quota', message: 'Out of credit.' } }),
+        } as unknown as Response
+      }
+      return { ok: true, status: 200, json: async () => ({ image: 'aGk=', mime: 'image/png' }) } as unknown as Response
+    }))
+    const result = await drawPanels(book, 'color', () => {}, () => {})
+    expect(result.drawn).toBe(1)
+    expect(result.stopped).toContain('Out of credit')
+    // It must not keep asking after the allowance is gone.
+    expect(calls).toBe(2)
+  })
+
+  it('skips one picture the model would not draw and carries on', async () => {
+    const book = comic(['one', 'two', 'three'])
+    let calls = 0
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      calls++
+      if (calls === 2) {
+        return {
+          ok: false, status: 400,
+          json: async () => ({ error: { code: 'rejected', message: 'Would not draw that.' } }),
+        } as unknown as Response
+      }
+      return { ok: true, status: 200, json: async () => ({ image: 'aGk=', mime: 'image/png' }) } as unknown as Response
+    }))
+    const result = await drawPanels(book, 'color', () => {}, () => {})
+    expect(result).toMatchObject({ drawn: 2, total: 3 })
+    expect(result.stopped).toBeUndefined()
+  })
+
+  it('stops when told to, without drawing the rest', async () => {
+    const book = comic(['one', 'two', 'three'])
+    const controller = new AbortController()
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      controller.abort()
+      return { ok: true, status: 200, json: async () => ({ image: 'aGk=', mime: 'image/png' }) } as unknown as Response
+    }))
+    const result = await drawPanels(book, 'color', () => {}, () => {}, controller.signal)
+    expect(result.drawn).toBeLessThan(3)
+    expect(result.stopped).toBe('You stopped it.')
+  })
+
+  it('reports nothing to do when no panel says what it shows', async () => {
+    const result = await drawPanels(comic([null, null, null, null]), 'color', () => {}, () => {})
+    expect(result).toMatchObject({ drawn: 0, total: 0 })
+  })
+})
+
+describe('GenerationFailed', () => {
+  it('carries the code the drawing pass decides on', () => {
+    expect(new GenerationFailed({ code: 'quota', message: 'x' }).code).toBe('quota')
+  })
+})

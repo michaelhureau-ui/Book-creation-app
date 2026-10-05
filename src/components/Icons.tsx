@@ -56,4 +56,5 @@ export const Icons = {
   Line: svg(<><path d="M5 19 19 5" /><circle cx="19" cy="5" r="1.6" /><circle cx="5" cy="19" r="1.6" /></>),
   Bucket: svg(<><path d="M11 3 4.5 9.5a2 2 0 0 0 0 2.8l4.2 4.2a2 2 0 0 0 2.8 0L18 10z" /><path d="M8 6.5 13.5 12" /><path d="M20 14c0 1.5-1 2.5-1 2.5S18 15.5 18 14a1 1 0 0 1 2 0z" /></>),
   Sparkle: svg(<><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z" /></>),
+  Mic: svg(<><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0" /><path d="M12 18v3" /><path d="M8.5 21h7" /></>),
 }

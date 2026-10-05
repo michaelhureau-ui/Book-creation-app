@@ -4,6 +4,7 @@ import StarterKit from '@tiptap/starter-kit'
 import { Placeholder } from '@tiptap/extensions'
 import clsx from 'clsx'
 import { Icons } from '@/components/Icons'
+import { MicButton } from '@/components/MicButton'
 import type { ProsePage } from '@/types'
 
 interface ToolbarButton {
@@ -59,6 +60,14 @@ function Toolbar({ editor }: { editor: TipTapEditor }) {
           <option key={h.label} value={h.level ?? 'body'}>{h.label}</option>
         ))}
       </select>
+
+      <div className="flex items-center gap-0.5 border-l border-rule pl-1 first-of-type:border-l-0 first-of-type:pl-0">
+        <MicButton
+          label="Dictate into the page"
+          // Spoken words land where the caret is, as typing would.
+          onText={(said) => editor.chain().focus().insertContent(`${said} `).run()}
+        />
+      </div>
 
       {GROUPS.map((group, gi) => (
         <div key={gi} className="flex items-center gap-0.5 border-l border-rule pl-1 first-of-type:border-l-0 first-of-type:pl-0">
