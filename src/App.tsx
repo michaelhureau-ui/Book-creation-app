@@ -10,7 +10,7 @@ export default function App() {
   useEffect(() => { void load() }, [load])
 
   return (
-    <div className="h-full overflow-hidden">
+    <div className="app-root h-full overflow-hidden">
       {openBookId ? <Workspace /> : <div className="h-full overflow-y-auto scrollbar-slim"><Library /></div>}
     </div>
   )

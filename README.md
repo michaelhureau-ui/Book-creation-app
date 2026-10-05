@@ -95,7 +95,15 @@ sourcing artwork.
 | **Markdown** | Plain text with formatting preserved and punctuation escaped. |
 | **Backup** | The whole project as JSON, re-importable from the library screen. |
 
-Keyboard: `⌘/Ctrl+P` previews, `⌘/Ctrl+E` exports.
+**Print it.** *Print* hands the whole book to a printer, one page of the book
+per sheet of paper: a title page, then every written page, or every drawn comic
+page as artwork. It goes through the browser rather than the PDF writer, which
+is what reaches a printer from a phone as well as a laptop — and what lets you
+print a few pages instead of all of them, or choose *Save as PDF* in the
+printer dialog. The content comes from the same parsed model the exporters use,
+so the printout and the PDF are the same book.
+
+Keyboard: `⌘/Ctrl+P` prints, `⇧⌘/Ctrl+P` previews, `⌘/Ctrl+E` exports.
 
 ## Graphic novels
 
@@ -208,12 +216,14 @@ src/
 │   ├── stats.ts         word counts, reading time, panel counts
 │   ├── cover.ts         jacket palettes and layouts
 │   ├── graphic/         layouts · pages · assets · drawing · generation · renderer
+│   ├── printing.ts      what goes on each sheet of paper
 │   ├── story/           written-story requests, and turning one into a book
 │   ├── useSpeech.ts     dictation through the browser's own recogniser
 │   └── export/          markdown · docx · epub · pdf · comic (+ shared options)
 └── components/
     ├── graphic/         PageCanvas, PageList, PanelInspector, DrawingBoard
-    └── ...              Library, Workspace, Editor, ChapterList, PageStrip, Preview, dialogs
+    └── ...              Library, Workspace, Editor, ChapterList, PageStrip, Preview,
+                          PrintView, MicButton, dialogs
 ```
 
 A comic page records which chapter it belongs to, and the book keeps its pages
@@ -265,7 +275,7 @@ The unit tests cover the parts worth pinning down — the HTML parser, chapter
 numbering, the page grouping and the rule for stepping a page between chapters,
 migrating a chapter written before pages existed, word counts, Markdown generation, backup import validation, panel
 layout geometry, the artwork crop maths, the drawing board's flood fill and
-colour parsing, the page counts each length promises, the drawing pass (that it
+colour parsing, the page counts each length promises, what lands on each printed sheet, the drawing pass (that it
 stops dead on a spent allowance, skips a single refused picture, and keeps what
 it drew), balloon fitting (that a long speech stays inside the panel it is
 drawn in, and a sound effect shrinks rather than splitting), reading a written

@@ -7,6 +7,7 @@ import { PageStrip } from '@/components/PageStrip'
 import { DetailsPanel } from '@/components/DetailsPanel'
 import { Preview } from '@/components/Preview'
 import { ExportDialog } from '@/components/ExportDialog'
+import { PrintView } from '@/components/PrintView'
 import { GraphicWorkspace } from '@/components/graphic/GraphicWorkspace'
 import { Drawer, EmptyState } from '@/components/ui'
 import { useMediaQuery } from '@/lib/useNarrow'
@@ -44,7 +45,7 @@ export function Workspace() {
   const updateProsePage = useStore((s) => s.updateProsePage)
   const addChapter = useStore((s) => s.addChapter)
 
-  const [panel, setPanel] = useState<'details' | 'preview' | 'export' | null>(null)
+  const [panel, setPanel] = useState<'details' | 'preview' | 'export' | 'print' | null>(null)
   // The comic page size is a view/export setting rather than part of the book,
   // so it lives here and is handed to both the editor and the export dialog.
   const [trim, setTrim] = useState<TrimId>('comic')
@@ -55,13 +56,14 @@ export function Workspace() {
 
   useEffect(() => { if (chaptersDocked) setChaptersOpen(false) }, [chaptersDocked])
 
-  // ⌘/Ctrl+P previews, ⌘/Ctrl+E exports — both common enough while drafting to
-  // be worth a shortcut, and both otherwise buried behind the header buttons.
+  // ⌘/Ctrl+P prints, as it does everywhere else — taking it over is the only
+  // way the book reaches the printer rather than the app's own screen. Preview
+  // keeps the same chord with Shift, and ⌘E exports.
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (!(e.metaKey || e.ctrlKey)) return
       const key = e.key.toLowerCase()
-      if (key === 'p') { e.preventDefault(); setPanel('preview') }
+      if (key === 'p') { e.preventDefault(); setPanel(e.shiftKey ? 'preview' : 'print') }
       if (key === 'e') { e.preventDefault(); setPanel('export') }
     }
     document.addEventListener('keydown', onKey)
@@ -112,8 +114,11 @@ export function Workspace() {
           <button className="btn btn-ghost px-2" onClick={() => setPanel('details')} title="Book details">
             <Icons.Pencil /> <span className="hidden md:inline">Details</span>
           </button>
-          <button className="btn btn-outline" onClick={() => setPanel('preview')} title="Preview (⌘P)">
+          <button className="btn btn-outline" onClick={() => setPanel('preview')} title="Preview (⇧⌘P)">
             <Icons.Eye /> <span className="hidden md:inline">Preview</span>
+          </button>
+          <button className="btn btn-outline" onClick={() => setPanel('print')} title="Print (⌘P)">
+            <Icons.Printer /> <span className="hidden md:inline">Print</span>
           </button>
           <button className="btn btn-primary" onClick={() => setPanel('export')} title="Export (⌘E)">
             <Icons.Download /> <span className="hidden md:inline">Export</span>
@@ -187,6 +192,7 @@ export function Workspace() {
       {panel === 'details' && <DetailsPanel book={book} onClose={() => setPanel(null)} />}
       {panel === 'preview' && <Preview book={book} trim={trim} onClose={() => setPanel(null)} />}
       {panel === 'export' && <ExportDialog book={book} trim={trim} onClose={() => setPanel(null)} />}
+      {panel === 'print' && <PrintView book={book} trim={trim} onClose={() => setPanel(null)} />}
     </div>
   )
 }

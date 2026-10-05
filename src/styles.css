@@ -74,6 +74,46 @@
 .book-page hr { @apply my-8 border-0 text-center text-ink-faint; }
 .book-page hr::after { content: '* * *'; letter-spacing: 0.5em; }
 
+/*
+   Printing. The sheet is built off-screen and only becomes the page when the
+   printer asks for it, so nothing about the app's own layout has to be undone
+   first. Each `.print-sheet` is one piece of paper.
+*/
+.print-root {
+  display: none;
+  /* A printed book is set in a serif, whatever the app's own interface uses. */
+  font-family: Georgia, 'Times New Roman', serif;
+  color: #000;
+}
+
+@media print {
+  .app-root { display: none !important; }
+  .print-root { display: block !important; }
+
+  @page { margin: 14mm; }
+
+  html, body, #root { height: auto !important; overflow: visible !important; }
+  body { background: #fff !important; }
+
+  .print-sheet {
+    break-after: page;
+    page-break-after: always;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .print-sheet:last-child { break-after: auto; page-break-after: auto; }
+
+  /* A comic page is one picture; never let a printer slice it in two. */
+  .print-sheet img { max-width: 100%; max-height: 100%; break-inside: avoid; }
+
+  /* Headings orphaned at the foot of a sheet read as a mistake. */
+  .print-sheet h1, .print-sheet h2, .print-sheet h3 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+  .print-sheet p { orphans: 2; widows: 2; }
+}
+
 .scrollbar-slim::-webkit-scrollbar { width: 10px; height: 10px; }
 .scrollbar-slim::-webkit-scrollbar-thumb { @apply rounded-full bg-rule-strong; }
 .scrollbar-slim::-webkit-scrollbar-track { background: transparent; }
