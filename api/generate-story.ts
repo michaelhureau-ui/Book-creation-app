@@ -304,7 +304,14 @@ export function chooseGoogleTextModels(models: GoogleModel[]): string[] {
     .map((m) => (m.name ?? '').replace(/^models\//, ''))
     .filter((name) => /^gemini-/i.test(name))
     // Image, speech, embedding and realtime variants cannot write a chapter.
-    .filter((name) => !/image|vision|embedding|tts|audio|live|thinking|omni|robotics/i.test(name))
+    // The names keep changing — a probe of the live list found a transcriber, an
+    // image model called "nano-banana" and a computer-use model all claiming
+    // generateContent — so the list is kept up rather than trusted to be stable.
+    .filter((name) => !new RegExp(
+      'image|vision|embedding|tts|audio|live|thinking|omni|robotics'
+      + '|transcribe|banana|imagen|computer-use|guard|rerank',
+      'i',
+    ).test(name))
     .sort((a, b) => {
       const [fa, sa, va] = rankTextModel(a)
       const [fb, sb, vb] = rankTextModel(b)

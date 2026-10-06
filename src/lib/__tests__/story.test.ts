@@ -234,6 +234,15 @@ describe('choosing a text model', () => {
       .toBe('gemini-2.0-flash')
   })
 
+  it('leaves out models that cannot write prose, whatever they are called', () => {
+    // All of these came back from the live list claiming generateContent.
+    const picked = chooseGoogleTextModel(models(
+      'gemini-3.5-transcribe', 'gemini-nano-banana-2.1',
+      'gemini-2.5-computer-use-preview-10-2025', 'gemini-3.5-flash',
+    ))
+    expect(picked).toBe('gemini-3.5-flash')
+  })
+
   it('prefers the higher version among equally settled models', () => {
     expect(chooseGoogleTextModel(models('gemini-1.5-flash', 'gemini-2.5-flash', 'gemini-2.0-flash')))
       .toBe('gemini-2.5-flash')
