@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import handler, {
-  describeProviderFailure as describeStoryFailure, looksLikeWrongModel, providerReason,
-  resetGoogleTextModelCache, withReason,
+  describeProviderFailure as describeStoryFailure, looksLikeWrongModel, probeGoogleModels,
+  providerReason, resetGoogleTextModelCache, withReason,
 } from '../../../api/generate-story'
 import { describeProviderFailure as describeImageFailure } from '../../../api/generate-image'
 
@@ -244,6 +244,83 @@ describe('a model that cannot write at all', () => {
     expect(tried.length).toBeGreaterThan(4)
   })
 
+  it('keeps walking past the first ten refusals to reach one that writes', async () => {
+    // A key with no credit was refused by eleven flash models in a row, and the
+    // one it was allowed to use sat past where the walk used to stop.
+    const paid = Array.from({ length: 12 }, (_, i) => `gemini-3.${12 - i}-flash`)
+    const free = 'gemini-2.0-flash'
+    const tried: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const target = String(url)
+      if (target.includes('/models?')) {
+        return jsonResponse({
+          models: [...paid, free].map((name) => ({
+            name: `models/${name}`, supportedGenerationMethods: ['generateContent'],
+          })),
+        })
+      }
+      const model = /models\/([^:]+):/.exec(target)?.[1] ?? ''
+      tried.push(model)
+      if (model !== free) {
+        return jsonResponse({ error: { message: 'Your prepayment credits are depleted.' } }, 402)
+      }
+      return jsonResponse({ candidates: [{ content: { parts: [{ text: '{"title":"T","chapters":[{"title":"One","summary":"S"}]}' }] } }] })
+    }))
+    const { res, out } = makeRes()
+    await handler({ method: 'POST', body: { idea: 'a fox at sea' } }, res)
+    expect(out.code).toBe(200)
+    expect(tried.length).toBe(13)
+    expect(tried[tried.length - 1]).toBe(free)
+  })
+
+  it('probes the key model by model and stops at the first that writes', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const target = String(url)
+      if (target.includes('/models?')) {
+        return jsonResponse({
+          models: ['gemini-3.8-flash', 'gemini-3.8-flash-lite', 'gemini-2.0-flash'].map((name) => ({
+            name: `models/${name}`, supportedGenerationMethods: ['generateContent'],
+          })),
+        })
+      }
+      const model = /models\/([^:]+):/.exec(target)?.[1] ?? ''
+      if (model === 'gemini-3.8-flash') {
+        return jsonResponse({ error: { message: 'Your prepayment credits are depleted.' } }, 402)
+      }
+      if (model === 'gemini-3.8-flash-lite') {
+        return jsonResponse({ error: { message: 'models/x is no longer available to new users.' } }, 404)
+      }
+      return jsonResponse({ candidates: [{ content: { parts: [{ text: 'yes' }] } }] })
+    }))
+    const probe = await probeGoogleModels('a-key', new AbortController().signal)
+    expect(probe.listed).toBe(3)
+    expect(probe.wrote).toBe('gemini-2.0-flash')
+    // The full flash model outranks a lite one, so the walk reaches the working
+    // model before the retired lite one is ever asked.
+    expect(probe.tried.map((t) => [t.model, t.status])).toEqual([
+      ['gemini-3.8-flash', 402],
+      ['gemini-2.0-flash', 200],
+    ])
+    expect(probe.tried[0].reason).toContain('prepayment')
+    // Nothing in the answer may carry the key.
+    expect(JSON.stringify(probe)).not.toContain('a-key')
+  })
+
+  it('answers a probe request without writing a story', async () => {
+    const asked: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      asked.push(String(url))
+      return String(url).includes('/models?')
+        ? jsonResponse({ models: [{ name: 'models/gemini-2.0-flash', supportedGenerationMethods: ['generateContent'] }] })
+        : jsonResponse({ candidates: [{ content: { parts: [{ text: 'yes' }] } }] })
+    }))
+    const { res, out } = makeRes()
+    await handler({ method: 'GET', query: { probe: 'models' } }, res)
+    expect(out.code).toBe(200)
+    expect((out.body as { wrote: string }).wrote).toBe('gemini-2.0-flash')
+    expect(asked.some((u) => u.includes('generateContent'))).toBe(true)
+  })
+
   it('says the models refused rather than that the account is empty', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) =>
       String(url).includes('/models?')
@@ -255,8 +332,10 @@ describe('a model that cannot write at all', () => {
         : jsonResponse({ error: { message: 'Your prepayment credits are depleted.' } }, 402)))
     const { res, out } = makeRes()
     await handler({ method: 'POST', body: { idea: 'a fox at sea' } }, res)
-    expect(errorOf(out.body).message).toContain('Every model this key can reach')
-    expect(errorOf(out.body).message).toContain('billing')
+    expect(errorOf(out.body).message).toContain('None of the 3 models this key can reach')
+    // Google's own sentence is the only part anyone can act on, so it has to
+    // survive all the way to the writer.
+    expect(errorOf(out.body).message).toContain('prepayment credits are depleted')
   })
 
   it('moves down the list when a model wants money the account has not got', async () => {

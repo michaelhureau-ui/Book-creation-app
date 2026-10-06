@@ -17,6 +17,8 @@
 interface Req {
   method?: string
   body?: unknown
+  query?: Record<string, string | string[] | undefined>
+  url?: string
 }
 interface Res {
   status: (code: number) => Res
@@ -401,9 +403,21 @@ export function resetGoogleTextModelCache(): void {
 /**
  * At most this many models are tried before giving up. The list mixes tiers, so
  * a key with no credit can be refused by several in a row before reaching one
- * it may use — and a refusal is instant, so trying a few more costs nothing.
+ * it may use — and a refusal is instant, so trying more costs little.
+ *
+ * It was ten, and ten was not enough: a key whose credit had run out was
+ * refused by every flash model it could see, and the one it was allowed to use
+ * sat eleventh. A cap this high only ever bites when nothing works at all, and
+ * WALK_BUDGET_MS is what actually keeps the request inside its ceiling.
  */
-const MODEL_ATTEMPTS = 10
+const MODEL_ATTEMPTS = 30
+
+/**
+ * How long the walk may spend being refused before it stops and explains.
+ * Refusals come back in well under a second each, so this is only reached when
+ * something is wrong with the account rather than with the model.
+ */
+const WALK_BUDGET_MS = 25_000
 
 async function resolveGoogleModels(key: string, signal: AbortSignal): Promise<string[]> {
   if (process.env.GOOGLE_TEXT_MODEL) return [process.env.GOOGLE_TEXT_MODEL]
@@ -454,13 +468,14 @@ async function writeWithGoogle(
   // Worth one last go: every model in the list may be one this key cannot use.
   if (!candidates.includes(GOOGLE_FALLBACK_MODEL)) candidates.push(GOOGLE_FALLBACK_MODEL)
 
+  const startedAt = Date.now()
   let res: Response | null = null
   let model = candidates[0]
   let body = ''
-  let refusedEveryModel = false
+  /** The models that said, one way or another, that this key may not use them. */
+  const refused: string[] = []
 
-  for (const [i, candidate] of candidates.entries()) {
-    refusedEveryModel = i === candidates.length - 1
+  for (const candidate of candidates) {
     model = candidate
     res = await send(model, true)
     if (res.ok) break
@@ -479,10 +494,17 @@ async function writeWithGoogle(
     // The list offers models from every tier, and one the key cannot use looks
     // from the outside exactly like having run out. Try the next one down
     // rather than telling a writer their account is empty.
-    if (!looksLikeWrongModel(res.status, body)) { refusedEveryModel = false; break }
+    if (!looksLikeWrongModel(res.status, body)) break
+    refused.push(model)
     console.error(`[generate-story] ${model} answered ${res.status}; trying the next model`)
     cachedGoogleModel = null
+    // Leave the request enough time to answer rather than being killed mid-walk.
+    if (Date.now() - startedAt > WALK_BUDGET_MS) break
   }
+
+  // Every model that was tried turned us away — which is a different problem
+  // from one model being out of reach, and wants a different thing said.
+  const refusedEveryModel = refused.length > 0 && refused[refused.length - 1] === model
 
   if (!res || !res.ok) {
     // Reaches the deployment's runtime logs. The key is never part of this.
@@ -495,8 +517,9 @@ async function writeWithGoogle(
         status: 502,
         error: withReason({
           code: 'quota',
-          message: `Every model this key can reach turned the story down — ${candidates.length} tried.`
-            + ' They want billing set up on the Google account, or have been retired.',
+          message: `None of the ${refused.length} models this key can reach would write the story.`
+            + ' The Google account behind the key is out of credit, or those models have been retired.'
+            + ' Google said:',
         }, body),
       }
     }
@@ -572,6 +595,70 @@ async function writeWithOpenAi(
 /** A chapter needs far more room than an outline; neither should run away. */
 const OUTLINE_TOKENS = 8000
 const CHAPTER_TOKENS = 8000
+/** What one model said when asked to write a single word. */
+export interface ProbedModel {
+  model: string
+  status: number
+  ok: boolean
+  reason: string
+}
+
+/**
+ * Ask the key itself which models it may use.
+ *
+ * The runtime log says which models refused a story, but only for stories
+ * someone happened to ask for, and never which one would have worked. Twice now
+ * a fix has been shipped on a guess about that. This answers it directly: it is
+ * the same walk the writer does, with a one-word prompt, reported model by
+ * model. No key material is in the answer.
+ */
+export async function probeGoogleModels(
+  key: string, signal: AbortSignal,
+): Promise<{ listed: number; candidates: string[]; tried: ProbedModel[]; wrote: string | null }> {
+  let listed = 0
+  let candidates: string[] = []
+  try {
+    const res = await fetch(`${GOOGLE_BASE}/models?pageSize=200`, {
+      headers: { 'x-goog-api-key': key },
+      signal,
+    })
+    if (res.ok) {
+      const body = await res.json() as { models?: GoogleModel[] }
+      listed = (body.models ?? []).length
+      candidates = chooseGoogleTextModels(body.models ?? [])
+    }
+  } catch { /* an unreadable list is itself worth reporting, as zero */ }
+
+  if (!candidates.includes(GOOGLE_FALLBACK_MODEL)) candidates.push(GOOGLE_FALLBACK_MODEL)
+
+  const startedAt = Date.now()
+  const tried: ProbedModel[] = []
+  let wrote: string | null = null
+
+  for (const model of candidates.slice(0, MODEL_ATTEMPTS)) {
+    const res = await fetch(`${GOOGLE_BASE}/models/${model}:generateContent`, {
+      method: 'POST',
+      headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
+      body: googlePayload('Say the word yes.', 16, false),
+      signal,
+    }).catch(() => null)
+    if (!res) {
+      tried.push({ model, status: 0, ok: false, reason: 'could not be reached' })
+      continue
+    }
+    if (res.ok) {
+      tried.push({ model, status: 200, ok: true, reason: '' })
+      wrote = model
+      break
+    }
+    const body = await res.text().catch(() => '')
+    tried.push({ model, status: res.status, ok: false, reason: providerReason(body) })
+    if (Date.now() - startedAt > WALK_BUDGET_MS) break
+  }
+
+  return { listed, candidates, tried, wrote }
+}
+
 /** Stay under Vercel's function ceiling with room left to report a timeout. */
 const TIMEOUT_MS = 55_000
 
@@ -589,6 +676,26 @@ export default async function handler(req: Req, res: Res): Promise<void> {
   // As with pictures, a GET says whether a key reached this deployment. No key
   // material is exposed, only whether one is present.
   if (req.method === 'GET') {
+    // ?probe=models checks the key against every model it can see and says what
+    // each one answered. It writes a word per model, so it is asked for, never
+    // run by default.
+    const asked = req.query?.probe ?? (req.url?.includes('probe=models') ? 'models' : undefined)
+    if (asked === 'models') {
+      if (!googleKey) {
+        res.status(200).json({ configured: provider !== null, provider, probe: 'needs a Google key' })
+        return
+      }
+      const abort = new AbortController()
+      const timer = setTimeout(() => abort.abort(), TIMEOUT_MS)
+      try {
+        res.status(200).json({ provider, ...(await probeGoogleModels(googleKey, abort.signal)) })
+      } catch {
+        res.status(200).json({ provider, probe: 'the probe itself could not finish' })
+      } finally {
+        clearTimeout(timer)
+      }
+      return
+    }
     res.status(200).json({
       configured: provider !== null,
       provider,
