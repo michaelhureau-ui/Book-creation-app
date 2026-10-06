@@ -186,9 +186,19 @@ falls back to one that does rather than waiting for a redeploy.
 That fallback covers one trap in particular. The list offers models from every
 tier, so the newest is often one the key cannot pay for — Google answers `402
 Your prepayment credits are depleted`, which reads to a writer as *you have run
-out* when in truth the next model down would have written the book for nothing.
-A refusal like that is treated as the wrong model rather than an empty account,
-and the next candidate is tried. Pin either with `GOOGLE_IMAGE_MODEL`
+out* when in truth a cheaper model would have written the book for nothing. A
+refusal like that is treated as the wrong model rather than an empty account,
+and the next candidate is tried.
+
+Three details earn their place, all learned from a deployment that stopped
+writing anything at all. A whole run of models can be refused before reaching
+one a key may use, so the walk is ten deep rather than four. A *lite* model is
+still a flash model and is the one a free key is likeliest to be allowed, so it
+ranks below its full sibling rather than being excluded. And Google retires a
+model with a 404 reading `no longer available to new users` — nothing like *not
+found* — which is how a hardcoded last resort became the thing that broke; the
+last resort is now an alias that cannot go stale, and when every model refuses
+the app says so instead of blaming the account. Pin either with `GOOGLE_IMAGE_MODEL`
 or `GOOGLE_TEXT_MODEL` (`OPENAI_TEXT_MODEL` for OpenAI) to override that.
 
 Without any key the app says so plainly and everything else still works. Both
@@ -259,6 +269,12 @@ Having the lines as data first is also what fixed the voice being cut off
 mid-sentence: every line is spoken and measured before filming starts, and each
 picture is then held for at least as long as its lines take. The film runs to the
 words rather than the words running out of film.
+
+Something has to feed the audio output for the whole film, even when that is
+silence — otherwise the recorded track spans only the moments something was
+playing. With the music off that came out thirty-eight seconds shorter than the
+picture, which is a voice sliding further out of step the longer you watch. A
+constant source of nothing holds the track open end to end.
 
 The *look* of a film comes from the artwork, not the film: pick **3D animated
 film**, **Storybook painting**, **Pencil drawing** or any other style when the

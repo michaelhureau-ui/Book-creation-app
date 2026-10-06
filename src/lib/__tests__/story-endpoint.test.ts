@@ -205,6 +205,60 @@ describe('a model that cannot write at all', () => {
     expect(looksLikeWrongModel(429, 'Quota exceeded for this model on the free tier')).toBe(true)
   })
 
+  /**
+   * Google retires a model with a 404 that reads nothing like "not found".
+   * Missing that wording stopped the walk dead on the one model it should most
+   * obviously have stepped over.
+   */
+  it('recognises a model Google has retired', () => {
+    expect(looksLikeWrongModel(404,
+      'This model models/gemini-2.5-flash is no longer available to new users.')).toBe(true)
+    expect(looksLikeWrongModel(404, 'models/old-one is deprecated')).toBe(true)
+  })
+
+  it('walks past a whole run of models the key cannot pay for', async () => {
+    // What production actually answered: every 3.x refused for billing.
+    const paid = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash']
+    const tried: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const target = String(url)
+      if (target.includes('/models?')) {
+        return jsonResponse({
+          models: [...paid, 'gemini-3.8-flash-lite'].map((name) => ({
+            name: `models/${name}`, supportedGenerationMethods: ['generateContent'],
+          })),
+        })
+      }
+      const model = /models\/([^:]+):/.exec(target)?.[1] ?? ''
+      tried.push(model)
+      if (paid.includes(model)) {
+        return jsonResponse({ error: { message: 'Your prepayment credits are depleted.' } }, 402)
+      }
+      return jsonResponse({ candidates: [{ content: { parts: [{ text: '{"title":"T","chapters":[{"title":"One","summary":"S"}]}' }] } }] })
+    }))
+    const { res, out } = makeRes()
+    await handler({ method: 'POST', body: { idea: 'a fox at sea' } }, res)
+    expect(out.code).toBe(200)
+    // A lite model is cheap and capable; excluding it left nothing to fall to.
+    expect(tried[tried.length - 1]).toBe('gemini-3.8-flash-lite')
+    expect(tried.length).toBeGreaterThan(4)
+  })
+
+  it('says the models refused rather than that the account is empty', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) =>
+      String(url).includes('/models?')
+        ? jsonResponse({
+          models: ['gemini-3.8-flash', 'gemini-3.7-flash'].map((name) => ({
+            name: `models/${name}`, supportedGenerationMethods: ['generateContent'],
+          })),
+        })
+        : jsonResponse({ error: { message: 'Your prepayment credits are depleted.' } }, 402)))
+    const { res, out } = makeRes()
+    await handler({ method: 'POST', body: { idea: 'a fox at sea' } }, res)
+    expect(errorOf(out.body).message).toContain('Every model this key can reach')
+    expect(errorOf(out.body).message).toContain('billing')
+  })
+
   it('moves down the list when a model wants money the account has not got', async () => {
     const tried: string[] = []
     const fetchMock = vi.fn(async (url: string) => {

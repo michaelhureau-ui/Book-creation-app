@@ -277,7 +277,10 @@ interface GoogleModel {
  * actually matters instead.
  */
 export function rankTextModel(name: string): [number, number, number] {
-  const flash = /flash/i.test(name) && !/lite/i.test(name) ? 1 : 0
+  // A lite model is still a flash model, and it is the one a free key is most
+  // likely to be allowed — excluding it is how a key with no credit ended up
+  // with nothing left to try. It ranks below its full sibling, not out.
+  const flash = /flash/i.test(name) ? (/lite/i.test(name) ? 0.5 : 1) : 0
   // A preview or a moving alias can change under the deployment without warning.
   const settled = /preview|exp(?:erimental)?\b|latest|-\d{4}/i.test(name) ? 0 : 1
   const version = Number(/gemini-(\d+(?:\.\d+)?)/i.exec(name)?.[1] ?? 0)
@@ -329,6 +332,10 @@ export function looksLikeWrongModel(status: number, body: string): boolean {
       || lower.includes('is not found')
       || lower.includes('not supported for')
       || lower.includes('is not supported')
+      // Google retires a model with a 404 that reads nothing like "not found".
+      || lower.includes('no longer available')
+      || lower.includes('deprecated')
+      || lower.includes('has been retired')
       || lower.includes('prepayment')
       || lower.includes('billing')
       || lower.includes('free tier')
@@ -374,8 +381,16 @@ export function extractGoogleText(body: unknown): string {
 }
 
 const GOOGLE_BASE = 'https://generativelanguage.googleapis.com/v1beta'
-/** Used if the model list cannot be read, or if the chosen model will not write. */
-const GOOGLE_FALLBACK_MODEL = 'gemini-2.5-flash'
+/**
+ * The last thing tried when nothing in the list will write, and the only thing
+ * tried when the list cannot be read.
+ *
+ * Deliberately an alias rather than a version: a pinned name ages out from
+ * under the deployment, and Google retires it with a 404 reading "no longer
+ * available to new users" — which is exactly how the last resort became the
+ * thing that broke.
+ */
+const GOOGLE_FALLBACK_MODEL = 'gemini-flash-latest'
 let cachedGoogleModel: string | null = null
 
 /** Clears the memoised model choice. Exposed so tests start from a clean slate. */
@@ -383,8 +398,12 @@ export function resetGoogleTextModelCache(): void {
   cachedGoogleModel = null
 }
 
-/** At most this many models are tried before giving up, to bound the wait. */
-const MODEL_ATTEMPTS = 4
+/**
+ * At most this many models are tried before giving up. The list mixes tiers, so
+ * a key with no credit can be refused by several in a row before reaching one
+ * it may use — and a refusal is instant, so trying a few more costs nothing.
+ */
+const MODEL_ATTEMPTS = 10
 
 async function resolveGoogleModels(key: string, signal: AbortSignal): Promise<string[]> {
   if (process.env.GOOGLE_TEXT_MODEL) return [process.env.GOOGLE_TEXT_MODEL]
@@ -432,15 +451,16 @@ async function writeWithGoogle(
     })
 
   const candidates = await resolveGoogleModels(key, signal)
-  // The fallback is always worth one last go: the listed models may all be
-  // ones this key cannot use.
+  // Worth one last go: every model in the list may be one this key cannot use.
   if (!candidates.includes(GOOGLE_FALLBACK_MODEL)) candidates.push(GOOGLE_FALLBACK_MODEL)
 
   let res: Response | null = null
   let model = candidates[0]
   let body = ''
+  let refusedEveryModel = false
 
-  for (const candidate of candidates) {
+  for (const [i, candidate] of candidates.entries()) {
+    refusedEveryModel = i === candidates.length - 1
     model = candidate
     res = await send(model, true)
     if (res.ok) break
@@ -459,7 +479,7 @@ async function writeWithGoogle(
     // The list offers models from every tier, and one the key cannot use looks
     // from the outside exactly like having run out. Try the next one down
     // rather than telling a writer their account is empty.
-    if (!looksLikeWrongModel(res.status, body)) break
+    if (!looksLikeWrongModel(res.status, body)) { refusedEveryModel = false; break }
     console.error(`[generate-story] ${model} answered ${res.status}; trying the next model`)
     cachedGoogleModel = null
   }
@@ -467,6 +487,19 @@ async function writeWithGoogle(
   if (!res || !res.ok) {
     // Reaches the deployment's runtime logs. The key is never part of this.
     console.error(`[generate-story] ${model} answered ${res?.status ?? 0}: ${body.slice(0, 500)}`)
+    if (refusedEveryModel) {
+      // Not the same thing as an allowance running out, and saying so sends
+      // someone looking for a problem they do not have.
+      return {
+        ok: false,
+        status: 502,
+        error: withReason({
+          code: 'quota',
+          message: `Every model this key can reach turned the story down — ${candidates.length} tried.`
+            + ' They want billing set up on the Google account, or have been retired.',
+        }, body),
+      }
+    }
     return {
       ok: false,
       status: res?.status ?? 502,

@@ -270,6 +270,24 @@ export async function recordFilm(
   const chunks: Blob[] = []
   recorder.ondataavailable = (event) => { if (event.data.size > 0) chunks.push(event.data) }
 
+  // A browser starts an audio context suspended unless it was created during a
+  // click, and building the voice takes long enough that the click is over by
+  // the time this runs. Wake it before recording.
+  if (audio && audio.state !== 'running') await audio.resume().catch(() => undefined)
+
+  // Something must feed the audio output for the whole film, even when it is
+  // silence. Without it the recorded track only spans the moments something was
+  // actually playing — with the music off that came out 38 seconds shorter than
+  // the picture, which is a voice that slides further out of step the longer you
+  // watch. A constant source of nothing holds the track open end to end.
+  let silence: ConstantSourceNode | null = null
+  if (audio && destination) {
+    silence = audio.createConstantSource()
+    silence.offset.value = 0
+    silence.connect(destination)
+    silence.start()
+  }
+
   const finished = new Promise<void>((resolve) => { recorder.onstop = () => resolve() })
   recorder.start(250)
 
@@ -306,6 +324,7 @@ export async function recordFilm(
   recorder.stop()
   narrator.cancel()
   score?.stop()
+  try { silence?.stop() } catch { /* already stopped */ }
   stream.getTracks().forEach((track) => track.stop())
   await finished
   await audio?.close().catch(() => undefined)
