@@ -5,8 +5,8 @@ import { MicButton } from '@/components/MicButton'
 import { Modal } from '@/components/ui'
 import { useStore } from '@/lib/store'
 import {
-  drawPanels, NOT_CONFIGURED_HELP, STALE_BUILD_HELP, StoryFailed, writeStory,
-  type DrawingProgress, type StoryProgress,
+  checkStoryService, drawPanels, NOT_CONFIGURED_HELP, QUOTA_HELP, STALE_BUILD_HELP, StoryFailed,
+  writeStory, type DrawingProgress, type ServiceCheck, type StoryProgress,
 } from '@/lib/story/generate'
 import { MAX_IDEA_LENGTH, MAX_SHOW_LENGTH } from '@/lib/story/limits'
 import { STYLES, type ArtStyle } from '@/lib/graphic/image-prompt'
@@ -62,6 +62,7 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
   const [progress, setProgress] = useState<StoryProgress | null>(null)
   const [drawing, setDrawing] = useState<DrawingProgress | null>(null)
   const [error, setError] = useState<{ code: string; message: string } | null>(null)
+  const [check, setCheck] = useState<ServiceCheck | 'running' | { failed: string } | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   // The book is in the library from the first chapter, so stopping keeps it.
   const startedRef = useRef<string | null>(null)
@@ -398,6 +399,7 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
           <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800">
             <p className="font-semibold">{error.message}</p>
             {error.code === 'not_configured' && <p className="mt-1">{NOT_CONFIGURED_HELP}</p>}
+            {error.code === 'quota' && <p className="mt-1">{QUOTA_HELP}</p>}
             {error.code === 'stale_build' && <p className="mt-1">{STALE_BUILD_HELP}</p>}
             {error.code === 'drawing_stopped' && (
               <p className="mt-1">
@@ -410,6 +412,42 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
                 {partial} {partial === 1 ? 'chapter was' : 'chapters were'} written and saved before
                 this happened. Close this to read what there is.
               </p>
+            )}
+            {error.code !== 'drawing_stopped' && error.code !== 'empty_idea' && (
+              <div className="mt-2 border-t border-red-200 pt-2">
+                <button
+                  type="button"
+                  className="font-semibold underline disabled:opacity-60"
+                  disabled={check === 'running'}
+                  onClick={() => {
+                    setCheck('running')
+                    checkStoryService()
+                      .then(setCheck)
+                      .catch((err: unknown) =>
+                        setCheck({ failed: err instanceof Error ? err.message : 'The check failed.' }))
+                  }}
+                >
+                  {check === 'running' ? 'Asking Google…' : 'Check what Google says'}
+                </button>
+                {check && check !== 'running' && (
+                  'failed' in check
+                    ? <p className="mt-1">{check.failed}</p>
+                    : (
+                      <div className="mt-1 space-y-0.5">
+                        <p>
+                          {check.wrote
+                            ? `${check.wrote} will write — try again.`
+                            : `Not one of the ${check.tried.length} models tried would write.`}
+                        </p>
+                        {check.tried.map((t) => (
+                          <p key={t.model} className="font-mono text-[11px] leading-snug">
+                            {t.model}: {t.ok ? 'ready' : `${t.status} ${t.reason}`}
+                          </p>
+                        ))}
+                      </div>
+                    )
+                )}
+              </div>
             )}
           </div>
         )}

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   buildGraphicPage, buildProseChapter, layoutForPanels, paragraphsToHtml,
   readGraphicPages, readOutline, readProsePages, startBook,
@@ -9,6 +9,7 @@ import {
   buildOutlinePrompt, chooseGoogleTextModel, cleanIdea, extractGoogleText, parseJsonBody,
   rankTextModel,
 } from '../../../api/generate-story'
+import { checkStoryService } from '@/lib/story/generate'
 import { panelCount } from '@/lib/graphic/layouts'
 import { parseBlocks, blocksText } from '@/lib/blocks'
 
@@ -236,5 +237,32 @@ describe('choosing a text model', () => {
   it('prefers the higher version among equally settled models', () => {
     expect(chooseGoogleTextModel(models('gemini-1.5-flash', 'gemini-2.5-flash', 'gemini-2.0-flash')))
       .toBe('gemini-2.5-flash')
+  })
+})
+
+describe('checking the story service from the app', () => {
+  afterEach(() => { vi.unstubAllGlobals() })
+
+  it('reports model by model what the key is allowed to use', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      provider: 'google',
+      listed: 40,
+      tried: [
+        { model: 'gemini-3.8-flash', status: 402, ok: false, reason: 'Your prepayment credits are depleted.' },
+        { model: 'gemini-2.0-flash', status: 200, ok: true, reason: '' },
+      ],
+      wrote: 'gemini-2.0-flash',
+    }), { status: 200 })))
+    const check = await checkStoryService()
+    expect(check.wrote).toBe('gemini-2.0-flash')
+    expect(check.listed).toBe(40)
+    expect(check.tried[0].reason).toContain('prepayment')
+  })
+
+  it('says so plainly when the deployment has no key to check', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(
+      JSON.stringify({ configured: false, provider: null, probe: 'needs a Google key' }),
+      { status: 200 })))
+    await expect(checkStoryService()).rejects.toThrow('needs a Google key')
   })
 })

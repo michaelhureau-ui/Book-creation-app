@@ -453,6 +453,27 @@ function googlePayload(prompt: string, maxTokens: number, askForJson: boolean): 
   })
 }
 
+/**
+ * What to tell a writer when nothing at all would write for them.
+ *
+ * Worth being exact, because the two causes want opposite things done. A
+ * retired model is the app's problem and fixes itself from the model list. An
+ * empty prepay balance stops *every* key on that billing account — the free
+ * allowance included — so no amount of trying other models will help, and the
+ * only thing that does is someone adding credit or putting a new key on the
+ * deployment. Saying "try again in a moment" to that is how an afternoon gets
+ * lost.
+ */
+export function refusalAdvice(tried: number, reasons: string[]): string {
+  const money = reasons.some((r) => /credit|billing|prepay|payment/i.test(r))
+  const head = `None of the ${tried} models this key can reach would write the story.`
+  return money
+    ? `${head} The Google account behind the key has run out of credit, which stops every`
+      + ' model it has — even the free ones. Add credit at aistudio.google.com, or put a new'
+      + ' key on the deployment. Google said:'
+    : `${head} They have been retired or are out of this key's reach. Google said:`
+}
+
 async function writeWithGoogle(
   key: string, prompt: string, maxTokens: number, signal: AbortSignal,
 ): Promise<Written> {
@@ -472,8 +493,8 @@ async function writeWithGoogle(
   let res: Response | null = null
   let model = candidates[0]
   let body = ''
-  /** The models that said, one way or another, that this key may not use them. */
-  const refused: string[] = []
+  /** What each model said when it turned this key away, in the order tried. */
+  const refused: { model: string; reason: string }[] = []
 
   for (const candidate of candidates) {
     model = candidate
@@ -495,7 +516,7 @@ async function writeWithGoogle(
     // from the outside exactly like having run out. Try the next one down
     // rather than telling a writer their account is empty.
     if (!looksLikeWrongModel(res.status, body)) break
-    refused.push(model)
+    refused.push({ model, reason: providerReason(body) })
     console.error(`[generate-story] ${model} answered ${res.status}; trying the next model`)
     cachedGoogleModel = null
     // Leave the request enough time to answer rather than being killed mid-walk.
@@ -504,7 +525,7 @@ async function writeWithGoogle(
 
   // Every model that was tried turned us away — which is a different problem
   // from one model being out of reach, and wants a different thing said.
-  const refusedEveryModel = refused.length > 0 && refused[refused.length - 1] === model
+  const refusedEveryModel = refused.length > 0 && refused[refused.length - 1].model === model
 
   if (!res || !res.ok) {
     // Reaches the deployment's runtime logs. The key is never part of this.
@@ -517,9 +538,7 @@ async function writeWithGoogle(
         status: 502,
         error: withReason({
           code: 'quota',
-          message: `None of the ${refused.length} models this key can reach would write the story.`
-            + ' The Google account behind the key is out of credit, or those models have been retired.'
-            + ' Google said:',
+          message: refusalAdvice(refused.length, refused.map((r) => r.reason)),
         }, body),
       }
     }

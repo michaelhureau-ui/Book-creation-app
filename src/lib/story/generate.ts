@@ -155,6 +155,47 @@ export const NOT_CONFIGURED_HELP =
 export const STALE_BUILD_HELP =
   'Open the newest deployment of the app — or redeploy the latest commit — and try again.'
 
+/**
+ * What to tell the writer when the provider says the account cannot pay.
+ *
+ * A credit balance at zero stops every model on the key, the free allowance
+ * included, so there is nothing to wait for and nothing to retry — someone has
+ * to top the account up or swap the key. Say that, rather than leaving a child
+ * clicking "write it" at a wall.
+ */
+export const QUOTA_HELP =
+  'Nothing in the app can get round this one. Open aistudio.google.com with the account the key'
+  + ' belongs to, add credit (or make a key in a fresh project), and put it on the app as'
+  + ' GOOGLE_API_KEY. Writing the book yourself still works, and so does everything else.'
+
+/** One model's answer when the key was checked against it. */
+export interface ServiceCheck {
+  provider: string | null
+  listed: number
+  tried: { model: string; status: number; ok: boolean; reason: string }[]
+  wrote: string | null
+}
+
+/**
+ * Ask the app which models its key may actually use.
+ *
+ * Twice a fix for "the story will not write" went out on a guess about that,
+ * because the only place the answer lived was a deployment log nobody at the
+ * kitchen table can read. This puts it on screen instead.
+ */
+export async function checkStoryService(): Promise<ServiceCheck> {
+  const res = await fetch('/api/generate-story?probe=models')
+  if (!res.ok) throw new StoryFailed('network', 'The check could not be run.')
+  const body = await res.json() as Partial<ServiceCheck> & { probe?: string }
+  if (body.probe) throw new StoryFailed('not_configured', body.probe)
+  return {
+    provider: body.provider ?? null,
+    listed: body.listed ?? 0,
+    tried: body.tried ?? [],
+    wrote: body.wrote ?? null,
+  }
+}
+
 export interface DrawingProgress {
   drawn: number
   total: number

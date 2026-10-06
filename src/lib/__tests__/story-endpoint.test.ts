@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import handler, {
   describeProviderFailure as describeStoryFailure, looksLikeWrongModel, probeGoogleModels,
-  providerReason, resetGoogleTextModelCache, withReason,
+  providerReason, refusalAdvice, resetGoogleTextModelCache, withReason,
 } from '../../../api/generate-story'
 import { describeProviderFailure as describeImageFailure } from '../../../api/generate-image'
 
@@ -336,6 +336,19 @@ describe('a model that cannot write at all', () => {
     // Google's own sentence is the only part anyone can act on, so it has to
     // survive all the way to the writer.
     expect(errorOf(out.body).message).toContain('prepayment credits are depleted')
+    // An empty balance stops the free models too, so "try another" is a lie.
+    expect(errorOf(out.body).message).toContain('run out of credit')
+  })
+
+  it('tells a writer to top the account up, not to wait, when the balance is the problem', () => {
+    const money = refusalAdvice(4, ['Your prepayment credits are depleted.', ''])
+    expect(money).toContain('run out of credit')
+    expect(money).toContain('aistudio.google.com')
+    expect(money).not.toMatch(/try again in a moment/i)
+
+    const retired = refusalAdvice(2, ['models/x is no longer available to new users.'])
+    expect(retired).not.toContain('credit')
+    expect(retired).toContain('retired')
   })
 
   it('moves down the list when a model wants money the account has not got', async () => {
