@@ -19,13 +19,11 @@ export function noteAt(step: number): number {
 }
 
 export interface Score {
-  /** The audio to mix into the recording, if there is any. */
-  tracks: MediaStreamTrack[]
   cue: (shot: Shot, index: number) => void
-  stop: () => Promise<void>
+  stop: () => void
 }
 
-const SILENT: Score = { tracks: [], cue: () => {}, stop: async () => {} }
+const SILENT: Score = { cue: () => {}, stop: () => {} }
 
 function noiseBuffer(ctx: AudioContext, seconds: number): AudioBuffer {
   const buffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate * seconds), ctx.sampleRate)
@@ -38,23 +36,14 @@ function noiseBuffer(ctx: AudioContext, seconds: number): AudioBuffer {
 }
 
 /**
- * Build the score. Returns a silent one where the browser has no audio, so a
- * film is still made rather than refused.
+ * Build the score on an audio graph the caller owns, so the voice can be mixed
+ * into the same recording. Returns a silent one where there is no audio at all,
+ * so a film is still made rather than refused.
  */
-export function createScore(volume = 0.5): Score {
-  const Ctx = typeof window === 'undefined'
-    ? undefined
-    : window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
-  if (!Ctx) return SILENT
-
-  let ctx: AudioContext
-  let destination: MediaStreamAudioDestinationNode
-  try {
-    ctx = new Ctx()
-    destination = ctx.createMediaStreamDestination()
-  } catch {
-    return SILENT
-  }
+export function createScore(
+  ctx: AudioContext | null, destination: AudioNode | null, volume = 0.5,
+): Score {
+  if (!ctx || !destination) return SILENT
 
   const master = ctx.createGain()
   master.gain.value = Math.max(0, Math.min(1, volume))
@@ -120,7 +109,6 @@ export function createScore(volume = 0.5): Score {
   let step = 0
 
   return {
-    tracks: destination.stream.getAudioTracks(),
     cue(shot, index) {
       const at = ctx.currentTime + 0.01
       switch (shot.kind) {
@@ -154,13 +142,11 @@ export function createScore(volume = 0.5): Score {
           break
       }
     },
-    async stop() {
+    stop() {
       try {
         bed.gain.setTargetAtTime(0, ctx.currentTime, 0.2)
         drone.stop(ctx.currentTime + 0.6)
       } catch { /* already stopped */ }
-      await new Promise((resolve) => setTimeout(resolve, 150))
-      await ctx.close().catch(() => undefined)
     },
   }
 }

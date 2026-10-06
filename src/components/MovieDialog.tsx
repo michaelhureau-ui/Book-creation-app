@@ -7,7 +7,7 @@ import { slugify } from '@/lib/book'
 import { bookStats } from '@/lib/stats'
 import { DEFAULT_FILM, filmSeconds, shotList, type MotionStyle } from '@/lib/movie/film'
 import { fileExtension, pickMimeType, recordFilm, type Film, type FilmProgress } from '@/lib/movie/record'
-import { speechSupported } from '@/lib/movie/narrator'
+
 import type { Book } from '@/types'
 
 const MOTIONS: { id: MotionStyle; label: string; hint: string }[] = [
@@ -189,20 +189,21 @@ export function MovieDialog({ book, onClose }: { book: Book; onClose: () => void
                   </span>
                 </label>
 
-                <label className={clsx('flex items-start gap-2', !speechSupported() && 'opacity-50')}>
+                <label className="flex items-start gap-2">
                   <input
                     type="checkbox"
                     className="mt-0.5"
-                    checked={voice && speechSupported()}
-                    disabled={!speechSupported()}
+                    checked={voice}
                     onChange={(e) => setVoice(e.target.checked)}
                   />
                   <span className="min-w-0">
                     <span className="block text-sm font-medium text-ink">Read it out loud</span>
                     <span className="block text-xs text-ink-faint">
-                      {speechSupported()
-                        ? 'The story is spoken while it plays, with each character’s lines as they come up. No browser lets a page record its own voice, so this is heard here rather than saved into the film — the words are in the balloons either way.'
-                        : 'This browser has no voice to read with.'}
+                      The title, every chapter and every balloon, with the speaker named — and
+                      each picture is held until its lines finish, so nothing is cut off. This is
+                      recorded into the film. It is a robot voice: the price of one that works
+                      with no key and still ends up in the file. The first film takes a moment
+                      longer while the voice is fetched.
                     </span>
                   </span>
                 </label>
@@ -235,6 +236,12 @@ export function MovieDialog({ book, onClose }: { book: Book; onClose: () => void
           <p className="rounded-lg border border-rule bg-paper-sunk/60 p-3 text-sm text-ink-soft">
             Done — {clock(film.seconds)} of film, {(film.blob.size / 1_000_000).toFixed(1)} MB.
             Save it, or make another at a different speed.
+            {voice && !film.voiceRecorded && (
+              <span className="mt-1 block text-xs text-ink-faint">
+                The voice could not be built here, so it was read aloud while filming instead of
+                being saved into the film.
+              </span>
+            )}
           </p>
         )}
 

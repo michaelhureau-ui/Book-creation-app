@@ -245,12 +245,20 @@ at each chapter, sounds a page for every panel, and thumps where something bangs
 Web Audio can be mixed into what the recorder captures, so the music is in the
 saved file.
 
-**And it talks.** The browser reads the film aloud as it plays: the title, each
-chapter, and every balloon with the speaker named. That part is *not* in the
-saved file, and cannot be — no browser lets a page capture its own speech, and
-the alternative, a speech API, would be one call a line and would empty an
-allowance long before it finished a book. So the voice is heard while it plays;
-the words are in the balloons either way.
+**And it talks, in the saved file.** The title, each chapter, and every balloon
+with the speaker named. Getting that into the file took going round the browser:
+no browser lets a page capture its own speech synthesis, so a film recorded with
+it comes out silent, and a speech API would be one call a line and would empty an
+allowance long before it finished a book. So the voice is synthesised in the page
+as sound data, which Web Audio mixes straight into what the recorder is
+capturing. It is a plain robot voice — the price of one that is free, needs no
+key, and still ends up in the file. The synthesiser is a few megabytes, so it is
+fetched only when somebody asks for a voice.
+
+Having the lines as data first is also what fixed the voice being cut off
+mid-sentence: every line is spoken and measured before filming starts, and each
+picture is then held for at least as long as its lines take. The film runs to the
+words rather than the words running out of film.
 
 The *look* of a film comes from the artwork, not the film: pick **3D animated
 film**, **Storybook painting**, **Pencil drawing** or any other style when the
@@ -347,7 +355,8 @@ out of the drawing briefs, that a balloon's tail reaches toward the speaker and
 that a caption never grows one, the grammar of a film — what is shown, in what
 order, for how long, and which way the camera travels over it — that a model
 refused for billing is swapped rather than reported as an empty account, what
-the voice reads over each shot, the drawing pass (that it
+the voice reads over each shot, that a shot is lengthened to fit its lines and
+never shortened, the drawing pass (that it
 stops dead on a spent allowance, skips a single refused picture, and keeps what
 it drew), balloon fitting (that a long speech stays inside the panel it is
 drawn in, and a sound effect shrinks rather than splitting), reading a written

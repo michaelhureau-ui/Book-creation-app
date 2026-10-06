@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { createScore, noteAt } from '@/lib/movie/sound'
 import { createNarrator, linesFor, speechSupported } from '@/lib/movie/narrator'
-import { shotList } from '@/lib/movie/film'
+import { shotList, stretchShots } from '@/lib/movie/film'
+import { VOICE_LEVEL, createSpeaker, resetSpeaker } from '@/lib/movie/voice'
 import { createBalloon } from '@/lib/graphic/pages'
 import { createBook, createChapter } from '@/lib/book'
 import { createPage } from '@/lib/graphic/pages'
@@ -17,12 +18,11 @@ describe('the score', () => {
   })
 
   /** jsdom has no audio, and a film should still be made rather than refused. */
-  it('falls silent rather than failing where there is no audio', async () => {
-    const score = createScore()
-    expect(score.tracks).toEqual([])
+  it('falls silent rather than failing where there is no audio', () => {
+    const score = createScore(null, null)
     const shots = shotList(createBook('Quiet', '', 'graphic'))
     for (const [i, shot] of shots.entries()) expect(() => score.cue(shot, i)).not.toThrow()
-    await expect(score.stop()).resolves.toBeUndefined()
+    expect(() => score.stop()).not.toThrow()
   })
 })
 
@@ -77,5 +77,36 @@ describe('what the voice reads', () => {
     // jsdom has no speech synthesis, so the feature reports itself unavailable.
     expect(speechSupported()).toBe(false)
     expect(() => createNarrator(true).speak(find('cover'))).not.toThrow()
+  })
+})
+
+describe('holding a shot for its lines', () => {
+  /**
+   * A shot that ends before its line does is why the voice kept being cut off:
+   * the film ran to the clock while the words ran to their own length.
+   */
+  it('lengthens a shot whose narration outlasts it, and leaves the rest alone', () => {
+    const shots = shotList(createBook('Timing', '', 'graphic'))
+    const stretched = stretchShots(shots, [shots[0].seconds + 4, 0])
+    expect(stretched[0].seconds).toBe(shots[0].seconds + 4)
+    expect(stretched[1].seconds).toBe(shots[1].seconds)
+    // Never shortens: a picture still needs its own time even when nobody speaks.
+    expect(stretchShots(shots, [0.1])[0].seconds).toBe(shots[0].seconds)
+  })
+
+  it('copes with no measurement at all for a shot', () => {
+    const shots = shotList(createBook('Timing', '', 'graphic'))
+    expect(stretchShots(shots, []).map((s) => s.seconds)).toEqual(shots.map((s) => s.seconds))
+  })
+
+  it('leaves headroom so the voice and the score together do not clip', () => {
+    expect(VOICE_LEVEL).toBeGreaterThan(0.5)
+    expect(VOICE_LEVEL).toBeLessThan(1)
+  })
+
+  /** jsdom has no synthesiser; a film should fall back rather than fail. */
+  it('reports no speaker rather than throwing where one cannot be built', async () => {
+    resetSpeaker()
+    await expect(createSpeaker()).resolves.toBeDefined()
   })
 })

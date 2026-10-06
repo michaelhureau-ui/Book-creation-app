@@ -158,6 +158,20 @@ export function shotList(book: Book, options: FilmOptions = DEFAULT_FILM): Shot[
   return shots
 }
 
+/**
+ * Hold each shot for at least as long as its narration takes.
+ *
+ * A shot that ends before its line does is the reason the voice kept being cut
+ * off mid-sentence: the film ran to the clock and the words ran to their own
+ * length. Reconciling them before filming is what fixes it.
+ */
+export function stretchShots(shots: Shot[], minimums: number[]): Shot[] {
+  return shots.map((shot, i) => {
+    const needed = minimums[i] ?? 0
+    return needed > shot.seconds ? { ...shot, seconds: needed } : shot
+  })
+}
+
 export function filmSeconds(shots: Shot[]): number {
   return shots.reduce((total, shot) => total + shot.seconds, 0)
 }

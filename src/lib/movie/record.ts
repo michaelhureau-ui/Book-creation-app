@@ -4,10 +4,25 @@ import { frameToRect, layoutOf } from '@/lib/graphic/layouts'
 import { assetIdsOf, pageGeometry, renderPage } from '@/lib/graphic/render'
 import { loadImages } from '@/lib/graphic/assets'
 import {
-  ease, filmSeconds, shotAt, shotList, type FilmOptions, type Move, type Shot,
+  ease, filmSeconds, shotAt, shotList, stretchShots,
+  type FilmOptions, type Move, type Shot,
 } from '@/lib/movie/film'
 import { createScore } from '@/lib/movie/sound'
 import { createNarrator } from '@/lib/movie/narrator'
+import { createSpeaker, narrate, playNarration } from '@/lib/movie/voice'
+
+function audioContext(): AudioContext | null {
+  const Ctx = typeof window === 'undefined'
+    ? undefined
+    : window.AudioContext
+      ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+  if (!Ctx) return null
+  try {
+    return new Ctx()
+  } catch {
+    return null
+  }
+}
 
 /** The shots that move across something drawn, rather than being typeset. */
 type MovingShot = Extract<Shot, { move: Move }>
@@ -168,12 +183,6 @@ export interface FilmProgress {
   label: string
 }
 
-export interface Film {
-  blob: Blob
-  mime: string
-  seconds: number
-}
-
 /**
  * Play the film onto a canvas and record it.
  *
@@ -183,10 +192,18 @@ export interface Film {
  * watched at the speed it is read.
  */
 export interface SoundOptions {
-  /** Music and effects, which are mixed into the saved file. */
+  /** Music and effects. */
   music: boolean
-  /** The browser reading it aloud, which plays here but cannot be recorded. */
+  /** The story read aloud. */
   voice: boolean
+}
+
+export interface Film {
+  blob: Blob
+  mime: string
+  seconds: number
+  /** True when the voice is in the file rather than only heard while filming. */
+  voiceRecorded: boolean
 }
 
 export async function recordFilm(
@@ -202,8 +219,7 @@ export async function recordFilm(
   canvas.width = FRAME.width
   canvas.height = FRAME.height
 
-  const shots = shotList(book, options)
-  const seconds = filmSeconds(shots)
+  let shots = shotList(book, options)
 
   // Every comic page is drawn once up front; redrawing one per frame would
   // never keep up with the clock.
@@ -217,15 +233,38 @@ export async function recordFilm(
     await new Promise((resolve) => setTimeout(resolve, 0))
   }
 
+  // The voice is synthesised in the page, so it can be mixed into what the
+  // recorder captures — and so each shot can be held for as long as its lines
+  // take, rather than cutting them off when the clock says so.
+  const audio = audioContext()
+  const destination = audio?.createMediaStreamDestination() ?? null
+  let narration: Awaited<ReturnType<typeof narrate>> | null = null
+  let voiceRecorded = false
+
+  if (sound.voice && audio && destination) {
+    onProgress({ share: 0, label: 'Finding a voice…' })
+    const say = await createSpeaker()
+    if (say) {
+      narration = await narrate(shots, audio, say, (done, total) =>
+        onProgress({ share: 0, label: `Speaking the story — ${done} of ${total}…` }))
+      shots = stretchShots(shots, narration.seconds)
+      voiceRecorded = true
+    }
+  }
+
+  const seconds = filmSeconds(shots)
+  // Where the voice could not be synthesised, fall back to the browser reading
+  // aloud: heard while it films, but not in the file.
+  const narrator = createNarrator(sound.voice && !voiceRecorded)
+
   const mime = pickMimeType()
   if (!mime) throw new Error('This browser cannot record video.')
 
   const stream = canvas.captureStream(FPS)
   // Web Audio can be mixed into what the recorder captures, so the score ends
   // up in the file. The browser's voice cannot be: no browser exposes it.
-  const score = sound.music ? createScore() : null
-  for (const track of score?.tracks ?? []) stream.addTrack(track)
-  const narrator = createNarrator(sound.voice)
+  const score = sound.music ? createScore(audio, destination) : null
+  for (const track of destination?.stream.getAudioTracks() ?? []) stream.addTrack(track)
 
   const recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 6_000_000 })
   const chunks: Blob[] = []
@@ -248,7 +287,12 @@ export async function recordFilm(
         sounded = current
         shotIndex++
         score?.cue(current, shotIndex)
-        narrator.speak(current)
+        if (narration && audio && destination) {
+          const clips = narration.clips.get(shotIndex)
+          if (clips) playNarration(audio, destination, clips)
+        } else {
+          narrator.speak(current)
+        }
       }
       onProgress({ share: time / seconds, label: 'Filming…' })
       requestAnimationFrame(step)
@@ -261,9 +305,10 @@ export async function recordFilm(
   await new Promise((resolve) => setTimeout(resolve, 200))
   recorder.stop()
   narrator.cancel()
-  await score?.stop()
+  score?.stop()
   stream.getTracks().forEach((track) => track.stop())
   await finished
+  await audio?.close().catch(() => undefined)
 
-  return { blob: new Blob(chunks, { type: mime }), mime, seconds }
+  return { blob: new Blob(chunks, { type: mime }), mime, seconds, voiceRecorded }
 }
