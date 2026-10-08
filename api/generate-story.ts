@@ -381,6 +381,16 @@ export function withReason(error: StoryError, body: string): StoryError {
 }
 
 /** The text of the first candidate, across the parts Google may split it into. */
+/**
+ * Why the model stopped. "MAX_TOKENS" means the answer was cut off mid-sentence
+ * — which, for a plan the app then counts chapters from, is the difference
+ * between a 200-page book and a 5-page one.
+ */
+export function googleFinishReason(body: unknown): string {
+  const json = body as { candidates?: { finishReason?: string }[] }
+  return json?.candidates?.[0]?.finishReason ?? ''
+}
+
 export function extractGoogleText(body: unknown): string {
   const json = body as {
     candidates?: { content?: { parts?: { text?: string }[] } }[]
@@ -449,7 +459,7 @@ async function resolveGoogleModels(key: string, signal: AbortSignal): Promise<st
 }
 
 type Written =
-  | { ok: true; text: string }
+  | { ok: true; text: string; finishReason: string }
   | { ok: false; status: number; error: StoryError }
 
 function googlePayload(prompt: string, maxTokens: number, askForJson: boolean): string {
@@ -564,7 +574,8 @@ async function writeWithGoogle(
   // The model that answered is the one worth using again.
   cachedGoogleModel = model
 
-  const text = extractGoogleText(await res.json().catch(() => null))
+  const payload = await res.json().catch(() => null)
+  const text = extractGoogleText(payload)
   if (!text) {
     // A refusal comes back as a 200 with no text, so say what happened rather
     // than letting it flatten into a generic provider error.
@@ -578,7 +589,7 @@ async function writeWithGoogle(
       },
     }
   }
-  return { ok: true, text }
+  return { ok: true, text, finishReason: googleFinishReason(payload) }
 }
 
 const OPENAI_URL = 'https://api.openai.com/v1/chat/completions'
@@ -610,7 +621,7 @@ async function writeWithOpenAi(
   }
 
   const data = await res.json().catch(() => null) as {
-    choices?: { message?: { content?: string } }[]
+    choices?: { message?: { content?: string }; finish_reason?: string }[]
   } | null
   const text = data?.choices?.[0]?.message?.content?.trim() ?? ''
   if (!text) {
@@ -620,7 +631,7 @@ async function writeWithOpenAi(
       error: { code: 'rejected', message: 'The story service returned nothing. Try describing the story differently.' },
     }
   }
-  return { ok: true, text }
+  return { ok: true, text, finishReason: data?.choices?.[0]?.finish_reason ?? '' }
 }
 
 /** A chapter needs far more room than an outline; neither should run away. */
@@ -721,12 +732,17 @@ export default async function handler(req: Req, res: Res): Promise<void> {
         res.status(200).json({ provider, probe: 'needs a Google key' })
         return
       }
+      const probeLength: StoryLength =
+        req.url?.includes('length=long') ? 'long'
+          : req.url?.includes('length=medium') ? 'medium' : 'short'
+      const probeKind: StoryKind = req.url?.includes('kind=graphic') ? 'graphic' : 'prose'
       const abort = new AbortController()
       const timer = setTimeout(() => abort.abort(), TIMEOUT_MS)
+      const startedAt = Date.now()
       try {
         const written = await writeWithGoogle(
           googleKey,
-          buildOutlinePrompt('a fox who keeps a lighthouse', 'prose', 'short', 'middle'),
+          buildOutlinePrompt('a fox who keeps a lighthouse', probeKind, probeLength, 'middle'),
           OUTLINE_TOKENS,
           abort.signal,
         )
@@ -740,8 +756,17 @@ export default async function handler(req: Req, res: Res): Promise<void> {
           provider,
           wrote: Boolean(outline && Array.isArray(outline.chapters) && outline.chapters.length > 0),
           model: cachedGoogleTextModel(),
-          title: outline?.title ?? null,
+          length: probeLength,
+          kind: probeKind,
+          // What the book is supposed to be, against what the plan would make it.
+          wantedChapters: shapeOf(probeKind, probeLength).chapters,
           chapters: Array.isArray(outline?.chapters) ? outline.chapters.length : 0,
+          title: outline?.title ?? null,
+          // A plan cut off mid-sentence is the difference between 200 pages and 5.
+          finishReason: written.finishReason,
+          replyChars: written.text.length,
+          parsed: outline !== null,
+          seconds: Math.round((Date.now() - startedAt) / 100) / 10,
         })
       } catch (err) {
         res.status(200).json({
