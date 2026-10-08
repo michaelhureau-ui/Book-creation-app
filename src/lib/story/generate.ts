@@ -6,7 +6,7 @@ import {
   buildGraphicPage, buildProseChapter, readGraphicPages, readOutline, readProsePages,
   startBook, type Outline, type StoryKind, type StoryLength,
 } from '@/lib/story/story'
-import { CHAPTERS_IN } from '@/lib/story/limits'
+import { CHAPTERS_IN, OUTLINE_BATCH } from '@/lib/story/limits'
 
 export type StoryErrorCode =
   | 'not_configured' | 'empty_idea' | 'rejected' | 'rate_limited' | 'quota'
@@ -23,6 +23,10 @@ export class StoryFailed extends Error {
 
 interface Ask {
   stage: 'outline' | 'chapter'
+  /** Chapters already planned, when a planning call continues an earlier one. */
+  sofar?: { title: string; summary: string }[]
+  /** The title the first planning call settled on. */
+  title?: string
   idea: string
   kind: StoryKind
   length: StoryLength
@@ -111,9 +115,7 @@ export async function writeStory(
     throw new StoryFailed('empty_idea', 'Say what the story should be about, or name a show or film.')
   }
 
-  hooks.onProgress({ done: 0, total: 1, label: 'Planning the book…' })
-  const outline = readOutline(
-    (await ask({ stage: 'outline', idea, kind, length, audience, show, retell }, signal)).outline)
+  const outline = await planBook(idea, kind, length, audience, show, retell, hooks, signal)
 
   const total = outline.chapters.length
   const wanted = CHAPTERS_IN[length]
@@ -163,6 +165,56 @@ export async function writeStory(
     )
   }
   return { bookId, chapters: written }
+}
+
+/**
+ * Plan the book a few chapters at a time.
+ *
+ * Asking for forty chapters in one go does not come back inside the time a
+ * serverless function is allowed — which is how a two-hundred-page book ended
+ * up five pages long. Each call is given the chapters already planned, so the
+ * parts join up, and whatever has been planned stays usable if a later call
+ * fails.
+ */
+async function planBook(
+  idea: string, kind: StoryKind, length: StoryLength, audience: string,
+  show: string, retell: boolean, hooks: StoryHooks, signal?: AbortSignal,
+): Promise<Outline> {
+  const wanted = CHAPTERS_IN[length]
+  hooks.onProgress({ done: 0, total: 1, label: 'Planning the book…' })
+
+  const first = readOutline(
+    (await askWithRetries({ stage: 'outline', idea, kind, length, audience, show, retell }, signal)).outline)
+  const chapters = [...first.chapters]
+
+  while (chapters.length < wanted) {
+    if (signal?.aborted) break
+    hooks.onProgress({
+      done: chapters.length,
+      total: wanted,
+      label: `Planning chapters ${chapters.length + 1} to `
+        + `${Math.min(chapters.length + OUTLINE_BATCH, wanted)}…`,
+    })
+    let more: Outline
+    try {
+      more = readOutline((await askWithRetries({
+        stage: 'outline', idea, kind, length, audience, show, retell,
+        sofar: chapters, title: first.title,
+      }, signal)).outline)
+    } catch {
+      // A plan that stops short still makes a book, and the length check at
+      // the end is what tells the writer it is shorter than they asked for.
+      break
+    }
+    // readOutline never returns nothing, so an empty answer arrives as one
+    // placeholder chapter — taking it would loop forever on a model that has
+    // run out of ideas.
+    const added = more.chapters.filter((c) => c.summary.trim().length > 0)
+    if (added.length === 0) break
+    chapters.push(...added.slice(0, wanted - chapters.length))
+  }
+
+  return { ...first, chapters }
 }
 
 /** Failures worth trying again: the service was busy, not the request wrong. */

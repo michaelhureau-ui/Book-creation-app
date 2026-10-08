@@ -114,20 +114,61 @@ function shapeOf(kind: StoryKind, length: StoryLength): { chapters: number; page
   return SHAPES[kind][length] ?? SHAPES[kind].medium
 }
 
+/**
+ * How many chapters one planning call asks for.
+ *
+ * Forty at once does not come back: the model spends longer than the function
+ * is allowed to live, and a plan cut off halfway is what turned a two-hundred
+ * page book into a five-page one. Ten at a time is quick, never truncates, and
+ * the parts join up because each call is given what came before.
+ */
+export const OUTLINE_BATCH = 10
+
 export function buildOutlinePrompt(
   idea: string, kind: StoryKind, length: StoryLength, audience: string,
   show?: string, retell = false,
+  /** Chapters already planned, when this call is continuing an earlier one. */
+  sofar: { title?: string; summary?: string }[] = [],
+  title = '',
 ): string {
   const cleaned = cleanIdea(idea)
   const named = cleanShow(show ?? '')
   if (!cleaned && !named) throw new Error('Say what the story is about.')
   const shape = shapeOf(kind, length)
   const form = kind === 'graphic' ? 'graphic novel' : 'novel'
+  const done = sofar.length
+  const asking = Math.min(OUTLINE_BATCH, shape.chapters - done)
+
+  if (done > 0) {
+    // A continuation needs the story so far, or chapter 11 starts the book
+    // again. The summaries already written are the only memory it has.
+    return [
+      `Here is the plan so far for "${title || 'this book'}", a ${form}`,
+      cleaned ? `from this idea: "${cleaned}".` : 'already begun.',
+      ...showNote(show ?? '', retell),
+      `It is written for ${audienceNote(audience)}.`,
+      `It has ${shape.chapters} chapters in all, and ${done} are planned:`,
+      sofar.map((c, i) => `${i + 1}. ${c.title ?? ''} — ${c.summary ?? ''}`).join(' '),
+      `Plan the next ${asking} ${asking === 1 ? 'chapter' : 'chapters'},`,
+      `numbers ${done + 1} to ${done + asking}, carrying straight on from what happens above`,
+      'with the same characters and names.',
+      done + asking >= shape.chapters
+        ? 'These are the last chapters, so bring the story to a proper ending.'
+        : 'The story must not finish yet — these are the middle of the book.',
+      'Each chapter needs a title and two or three sentences saying what happens in it,',
+      'including how it ends.',
+      'Reply with JSON only, no prose around it, in exactly this shape:',
+      '{"chapters":[{"title":"","summary":""}]}',
+    ].join(' ')
+  }
+
   return [
     cleaned ? `Plan a ${form} from this idea: "${cleaned}".` : `Plan a ${form}.`,
     ...showNote(show ?? '', retell),
     `Write it for ${audienceNote(audience)}.`,
-    `Plan exactly ${shape.chapters} ${shape.chapters === 1 ? 'chapter' : 'chapters'}.`,
+    `The whole book has ${shape.chapters} ${shape.chapters === 1 ? 'chapter' : 'chapters'},`,
+    `but plan only the first ${asking} of them now — the rest are asked for afterwards,`,
+    'so leave the story wide open at the end of the last one you plan.',
     'Give the book a real title — not the idea repeated back — and a short subtitle.',
     'Each chapter needs a title and two or three sentences saying what happens in it,',
     'including how it ends, so the chapters can be written separately and still join up.',
@@ -832,7 +873,7 @@ export default async function handler(req: Req, res: Res): Promise<void> {
   let payload: {
     stage?: unknown; idea?: unknown; kind?: unknown; length?: unknown
     audience?: unknown; outline?: unknown; index?: unknown; show?: unknown
-    retell?: unknown
+    retell?: unknown; sofar?: unknown; title?: unknown
   }
   try {
     payload = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body ?? {}) as never
@@ -853,7 +894,13 @@ export default async function handler(req: Req, res: Res): Promise<void> {
   let prompt: string
   try {
     if (outlining) {
-      prompt = buildOutlinePrompt(idea, kind, length, audience, show, retell)
+      // A continuation carries the chapters planned so far, so the next ten
+      // follow on instead of starting the book again.
+      const sofar = Array.isArray(payload.sofar)
+        ? (payload.sofar as { title?: string; summary?: string }[]).slice(0, 200)
+        : []
+      const planned = typeof payload.title === 'string' ? payload.title : ''
+      prompt = buildOutlinePrompt(idea, kind, length, audience, show, retell, sofar, planned)
     } else {
       const outline = (payload.outline ?? {}) as {
         title?: string

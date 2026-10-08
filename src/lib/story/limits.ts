@@ -22,3 +22,6 @@ export const CHAPTERS_IN: Record<'short' | 'medium' | 'long', number> = {
   medium: 20,
   long: 40,
 }
+
+/** How many chapters one planning call asks for; mirrors the endpoint. */
+export const OUTLINE_BATCH = 10

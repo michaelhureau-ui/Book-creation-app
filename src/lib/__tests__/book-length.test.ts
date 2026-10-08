@@ -88,10 +88,12 @@ describe('the length a book actually comes out', () => {
   })
 
   it('complains when the plan is shorter than the book that was asked for', async () => {
-    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: { body?: string }) =>
-      JSON.parse(init?.body ?? '{}').stage === 'chapter'
-        ? reply({ chapter: CHAPTER })
-        : reply(plan(1))))
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: { body?: string }) => {
+      const body = JSON.parse(init?.body ?? '{}')
+      if (body.stage === 'chapter') return reply({ chapter: CHAPTER })
+      // One chapter, and nothing more however many times it is asked.
+      return (body.sofar ?? []).length > 0 ? reply({ outline: { chapters: [] } }) : reply(plan(1))
+    }))
 
     const h = hooks()
     const writing = writeStory('a fox', 'prose', 'long', 'middle', h).then(() => null, (e) => e)
@@ -109,5 +111,46 @@ describe('the length a book actually comes out', () => {
     // Being busy is not being broke, and the advice must not confuse the two.
     expect(refusalAdvice(4, ['This model is currently experiencing high demand.']))
       .not.toContain('run out of credit')
+  })
+})
+
+describe('planning a long book in batches', () => {
+  beforeEach(() => { vi.useFakeTimers() })
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
+
+  it('keeps asking for more chapters until the book is the length asked for', async () => {
+    const asked: { stage: string; sofar: number }[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: { body?: string }) => {
+      const body = JSON.parse(init?.body ?? '{}')
+      asked.push({ stage: body.stage, sofar: (body.sofar ?? []).length })
+      if (body.stage === 'chapter') return reply({ chapter: CHAPTER })
+      return reply(plan(10))
+    }))
+
+    const h = hooks()
+    const writing = writeStory('a fox', 'prose', 'long', 'middle', h)
+    await vi.runAllTimersAsync()
+    const result = await writing
+
+    // Forty chapters, planned ten at a time: one opening call and three more.
+    const planning = asked.filter((a) => a.stage === 'outline')
+    expect(planning.map((p) => p.sofar)).toEqual([0, 10, 20, 30])
+    expect(result.chapters).toBe(40)
+  })
+
+  it('stops planning when the model stops adding, rather than looping forever', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: { body?: string }) => {
+      const body = JSON.parse(init?.body ?? '{}')
+      if (body.stage === 'chapter') return reply({ chapter: CHAPTER })
+      // The continuation comes back with nothing in it.
+      return (body.sofar ?? []).length > 0 ? reply({ outline: { chapters: [] } }) : reply(plan(10))
+    }))
+
+    const h = hooks()
+    const writing = writeStory('a fox', 'prose', 'long', 'middle', h).then(() => null, (e) => e)
+    await vi.runAllTimersAsync()
+    const err = await writing
+    expect((err as Error).message).toMatch(/only came back with 10 chapters instead of 40/)
+    expect(h.saved).toHaveLength(10)
   })
 })

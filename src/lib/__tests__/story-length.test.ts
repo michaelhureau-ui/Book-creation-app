@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { SHAPES, buildChapterPrompt, buildOutlinePrompt, pagesIn } from '../../../api/generate-story'
+import {
+  OUTLINE_BATCH, SHAPES, buildChapterPrompt, buildOutlinePrompt, pagesIn,
+} from '../../../api/generate-story'
 import { drawPanels } from '@/lib/story/generate'
 import { GenerationFailed } from '@/lib/graphic/generate'
 import { createBook } from '@/lib/book'
@@ -52,8 +54,12 @@ describe('how long a book is', () => {
   })
 
   it('asks the plan and each chapter for the counts the length means', () => {
+    // The whole length is stated, but only the first batch is asked for: forty
+    // chapter summaries in one go outlast the function.
     expect(buildOutlinePrompt('a fox', 'prose', 'long', 'middle'))
-      .toContain(`exactly ${SHAPES.prose.long.chapters} chapters`)
+      .toContain(`The whole book has ${SHAPES.prose.long.chapters} chapters`)
+    expect(buildOutlinePrompt('a fox', 'prose', 'long', 'middle'))
+      .toContain(`plan only the first ${OUTLINE_BATCH} of them now`)
     const outline = { title: 'T', chapters: [{ title: 'One', summary: 'S' }] }
     expect(buildChapterPrompt('a fox', 'prose', 'long', 'middle', outline, 0))
       .toContain(`as ${SHAPES.prose.long.pages} pages`)

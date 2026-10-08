@@ -3,9 +3,11 @@ import {
   buildGraphicPage, buildProseChapter, layoutForPanels, paragraphsToHtml,
   readGraphicPages, readOutline, readProsePages, startBook,
 } from '@/lib/story/story'
-import { MAX_IDEA_LENGTH, STORY_AUDIENCES, STORY_LENGTHS } from '@/lib/story/limits'
 import {
-  AUDIENCES, MAX_IDEA_LENGTH as API_MAX_IDEA_LENGTH, SHAPES, buildChapterPrompt,
+  MAX_IDEA_LENGTH, OUTLINE_BATCH as CLIENT_OUTLINE_BATCH, STORY_AUDIENCES, STORY_LENGTHS,
+} from '@/lib/story/limits'
+import {
+  AUDIENCES, MAX_IDEA_LENGTH as API_MAX_IDEA_LENGTH, OUTLINE_BATCH, SHAPES, buildChapterPrompt,
   buildOutlinePrompt, chooseGoogleTextModel, cleanIdea, extractGoogleText, parseJsonBody,
   rankTextModel,
 } from '../../../api/generate-story'
@@ -34,10 +36,21 @@ describe('prompts', () => {
     expect(() => buildOutlinePrompt('   ', 'prose', 'short', 'middle')).toThrow()
   })
 
-  it('asks for the number of chapters the chosen length means', () => {
+  it('asks for the first batch of chapters and says how long the book is', () => {
     const prompt = buildOutlinePrompt('a fox at sea', 'prose', 'long', 'middle')
-    expect(prompt).toContain(`exactly ${SHAPES.prose.long.chapters} chapters`)
+    expect(prompt).toContain(`The whole book has ${SHAPES.prose.long.chapters} chapters`)
     expect(prompt).toContain('a fox at sea')
+  })
+
+  it('carries the chapters already planned into the call that continues them', () => {
+    const sofar = [{ title: 'The Lamp Goes Out', summary: 'Rell climbs the stair.' }]
+    const prompt = buildOutlinePrompt(
+      'a fox at sea', 'prose', 'long', 'middle', '', false, sofar, 'The Lantern')
+    expect(prompt).toContain('The Lantern')
+    expect(prompt).toContain('Rell climbs the stair.')
+    expect(prompt).toContain('numbers 2 to 11')
+    // The middle of a book must not wrap the story up.
+    expect(prompt).toContain('must not finish yet')
   })
 
   it('carries the audience into the writing, not just the plan', () => {
@@ -273,5 +286,11 @@ describe('checking the story service from the app', () => {
       JSON.stringify({ configured: false, provider: null, probe: 'needs a Google key' }),
       { status: 200 })))
     await expect(checkStoryService()).rejects.toThrow('needs a Google key')
+  })
+})
+
+describe('the batch size the app and the endpoint each use', () => {
+  it('keeps the two in step, or the app asks for chapters it will not get', () => {
+    expect(CLIENT_OUTLINE_BATCH).toBe(OUTLINE_BATCH)
   })
 })
