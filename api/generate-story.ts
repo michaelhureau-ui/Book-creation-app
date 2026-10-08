@@ -493,14 +493,46 @@ const WALK_BUDGET_MS = 35_000
  */
 const ATTEMPT_MS = 22_000
 
+/**
+ * Fetch that cannot outlast its welcome.
+ *
+ * Every call here is one leg of a request that has about a minute to live, so
+ * anything without a clock of its own can spend the lot. Asking Google which
+ * models exist did exactly that during an outage: no refusal, no log line, just
+ * a minute of silence and "the operation was aborted".
+ */
+async function fetchWithin(
+  url: string, init: RequestInit, ms: number, outer: AbortSignal,
+): Promise<Response | 'timeout'> {
+  const attempt = new AbortController()
+  const giveUp = setTimeout(() => attempt.abort(), ms)
+  const relay = (): void => attempt.abort()
+  outer.addEventListener('abort', relay)
+  try {
+    return await fetch(url, { ...init, signal: attempt.signal })
+  } catch (err) {
+    if (outer.aborted) throw err
+    if (err instanceof Error && err.name === 'AbortError') return 'timeout'
+    throw err
+  } finally {
+    clearTimeout(giveUp)
+    outer.removeEventListener('abort', relay)
+  }
+}
+
+/** Long enough for a list of models, short enough to leave time to write. */
+const LIST_MS = 8_000
+
 async function resolveGoogleModels(key: string, signal: AbortSignal): Promise<string[]> {
   if (process.env.GOOGLE_TEXT_MODEL) return [process.env.GOOGLE_TEXT_MODEL]
   if (cachedGoogleModel) return [cachedGoogleModel]
   try {
-    const res = await fetch(`${GOOGLE_BASE}/models?pageSize=200`, {
-      headers: { 'x-goog-api-key': key },
-      signal,
-    })
+    const res = await fetchWithin(
+      `${GOOGLE_BASE}/models?pageSize=200`, { headers: { 'x-goog-api-key': key } }, LIST_MS, signal)
+    if (res === 'timeout') {
+      console.error('[generate-story] the model list took too long; using the fallback')
+      return [GOOGLE_FALLBACK_MODEL]
+    }
     if (res.ok) {
       const body = await res.json() as { models?: GoogleModel[] }
       const ranked = chooseGoogleTextModels(body.models ?? [])
@@ -568,29 +600,12 @@ async function writeWithGoogle(
    * any refusal. Giving each attempt a slice of the budget means a model that
    * hangs costs that slice and nothing more.
    */
-  const send = async (model: string, askForJson: boolean): Promise<Response | 'timeout'> => {
-    const attempt = new AbortController()
-    const giveUp = setTimeout(() => attempt.abort(), ATTEMPT_MS)
-    const relay = (): void => attempt.abort()
-    signal.addEventListener('abort', relay)
-    try {
-      return await fetch(`${GOOGLE_BASE}/models/${model}:generateContent`, {
-        method: 'POST',
-        headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
-        body: googlePayload(prompt, maxTokens, askForJson),
-        signal: attempt.signal,
-      })
-    } catch (err) {
-      // The caller's own abort is a real failure; ours is just this model's turn
-      // being over.
-      if (signal.aborted) throw err
-      if (err instanceof Error && err.name === 'AbortError') return 'timeout'
-      throw err
-    } finally {
-      clearTimeout(giveUp)
-      signal.removeEventListener('abort', relay)
-    }
-  }
+  const send = (model: string, askForJson: boolean): Promise<Response | 'timeout'> =>
+    fetchWithin(`${GOOGLE_BASE}/models/${model}:generateContent`, {
+      method: 'POST',
+      headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
+      body: googlePayload(prompt, maxTokens, askForJson),
+    }, ATTEMPT_MS, signal)
 
   const candidates = await resolveGoogleModels(key, signal)
   // Worth one last go: every model in the list may be one this key cannot use.
@@ -775,11 +790,9 @@ export async function probeGoogleModels(
   let listed = 0
   let candidates: string[] = []
   try {
-    const res = await fetch(`${GOOGLE_BASE}/models?pageSize=200`, {
-      headers: { 'x-goog-api-key': key },
-      signal,
-    })
-    if (res.ok) {
+    const res = await fetchWithin(
+      `${GOOGLE_BASE}/models?pageSize=200`, { headers: { 'x-goog-api-key': key } }, LIST_MS, signal)
+    if (res !== 'timeout' && res.ok) {
       const body = await res.json() as { models?: GoogleModel[] }
       listed = (body.models ?? []).length
       candidates = chooseGoogleTextModels(body.models ?? [])

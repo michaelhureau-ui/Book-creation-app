@@ -344,6 +344,36 @@ describe('a model that cannot write at all', () => {
     expect(JSON.stringify(out.body)).toContain('run out of credit')
   })
 
+  it('falls back when the model list stops answering, rather than waiting it out', async () => {
+    vi.useFakeTimers()
+    const asked: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { signal?: AbortSignal }) => {
+      const target = String(url)
+      asked.push(target.includes('/models?') ? 'list' : 'write')
+      if (target.includes('/models?')) {
+        // The list hangs: no refusal, no answer, nothing to log.
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            const err = new Error('aborted')
+            err.name = 'AbortError'
+            reject(err)
+          })
+        })
+      }
+      return jsonResponse({ candidates: [{ content: { parts: [{ text: '{"title":"T","chapters":[{"title":"One","summary":"S"}]}' }] } }] })
+    }))
+
+    const { res, out } = makeRes()
+    const handled = handler({ method: 'POST', body: { idea: 'a fox at sea' } }, res)
+    await vi.advanceTimersByTimeAsync(20_000)
+    await handled
+    vi.useRealTimers()
+
+    // It gave up on the list and went straight to the model it always has.
+    expect(asked).toEqual(['list', 'write'])
+    expect(out.code).toBe(200)
+  })
+
   it('moves on from a model that stops answering instead of hanging', async () => {
     vi.useFakeTimers()
     const tried: string[] = []
