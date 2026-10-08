@@ -481,17 +481,26 @@ export function cachedGoogleTextModel(): string | null {
 const MODEL_ATTEMPTS = 30
 
 /**
- * How long the walk may spend being refused before it stops and explains.
- * Refusals come back in well under a second each, so this is only reached when
- * something is wrong with the account rather than with the model.
+ * How long the one-word walk may spend finding models that answer. Each
+ * question is a second or so, so this is only reached when a lot of them are
+ * refusing.
  */
-const WALK_BUDGET_MS = 35_000
+const WALK_BUDGET_MS = 18_000
 
 /**
- * How long one model gets before its turn is over. Generous enough for a real
- * answer, short enough that two dead ends still leave time to find a live one.
+ * When to stop waiting for a chapter and say so, leaving the function room to
+ * answer rather than being killed.
+ *
+ * It was a flat twenty-two seconds, split between models. That was wrong twice
+ * over: measured in production, these models answer a one-word question in
+ * about a second and then take longer than twenty-two seconds over a real
+ * plan — they are slow, not dead — and giving the second model a turn only
+ * meant neither got enough time. A model that has just proved it is there gets
+ * whatever is left.
  */
-const ATTEMPT_MS = 22_000
+const WRITE_DEADLINE_MS = 48_000
+/** No attempt is worth starting with less than this left. */
+const MIN_ATTEMPT_MS = 10_000
 
 /**
  * Fetch that cannot outlast its welcome.
@@ -653,12 +662,14 @@ async function writeWithGoogle(
    * any refusal. Giving each attempt a slice of the budget means a model that
    * hangs costs that slice and nothing more.
    */
-  const send = (model: string, askForJson: boolean): Promise<Response | 'timeout'> =>
+  const send = (
+    model: string, askForJson: boolean, deadline: number,
+  ): Promise<Response | 'timeout'> =>
     fetchWithin(`${GOOGLE_BASE}/models/${model}:generateContent`, {
       method: 'POST',
       headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
       body: googlePayload(prompt, maxTokens, askForJson),
-    }, ATTEMPT_MS, signal)
+    }, Math.max(MIN_ATTEMPT_MS, deadline - Date.now()), signal)
 
   const candidates = await resolveGoogleModels(key, signal)
   // Worth one last go: every model in the list may be one this key cannot use.
@@ -679,16 +690,19 @@ async function writeWithGoogle(
     ? [cachedGoogleModel]
     : await liveModels(key, candidates, signal, refused, startedAt)
 
+  const deadline = startedAt + WRITE_DEADLINE_MS
+
   for (const candidate of live) {
     model = candidate
-    const first = await send(model, true)
+    // Nothing useful can be started with seconds left; say so instead.
+    if (deadline - Date.now() < MIN_ATTEMPT_MS && refused.length > 0) break
+    const first = await send(model, true, deadline)
 
     if (first === 'timeout') {
       refused.push({ model, reason: 'took too long to answer' })
       console.error(`[generate-story] ${model} ran out of time; trying the next model`)
       cachedGoogleModel = null
       res = null
-      if (Date.now() - startedAt > WALK_BUDGET_MS) break
       continue
     }
 
@@ -701,11 +715,10 @@ async function writeWithGoogle(
     // before giving up on this model.
     if (res.status === 400 && !looksLikeWrongModel(res.status, body)
         && describeProviderFailure(res.status, body).code === 'provider_error') {
-      const plain = await send(model, false)
+      const plain = await send(model, false, deadline)
       if (plain === 'timeout') {
         refused.push({ model, reason: 'took too long to answer' })
         res = null
-        if (Date.now() - startedAt > WALK_BUDGET_MS) break
         continue
       }
       res = plain
@@ -720,8 +733,6 @@ async function writeWithGoogle(
     refused.push({ model, reason: providerReason(body) })
     console.error(`[generate-story] ${model} answered ${res.status}; trying the next model`)
     cachedGoogleModel = null
-    // Leave the request enough time to answer rather than being killed mid-walk.
-    if (Date.now() - startedAt > WALK_BUDGET_MS) break
   }
 
   // Every model that was tried turned us away — which is a different problem
