@@ -361,7 +361,9 @@ describe('a model that cannot write at all', () => {
   it('falls back when the model list stops answering, rather than waiting it out', async () => {
     vi.useFakeTimers()
     const asked: string[] = []
-    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { signal?: AbortSignal }) => {
+    vi.stubGlobal('fetch', vi.fn(async (
+      url: string, init?: { signal?: AbortSignal; body?: string },
+    ) => {
       const target = String(url)
       if (!target.includes('/models?') && isPing(init)) return jsonResponse({ candidates: [{ content: { parts: [{ text: 'yes' }] } }] })
       asked.push(target.includes('/models?') ? 'list' : 'write')
