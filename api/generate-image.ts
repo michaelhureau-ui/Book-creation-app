@@ -17,6 +17,8 @@
 interface Req {
   method?: string
   body?: unknown
+  query?: Record<string, string | string[] | undefined>
+  url?: string
 }
 interface Res {
   status: (code: number) => Res
@@ -281,6 +283,34 @@ export default async function handler(req: Req, res: Res): Promise<void> {
   // rebuilt since — is otherwise invisible and easy to mistake for a bug in
   // the app. No key material is exposed, only whether one is present.
   if (req.method === 'GET') {
+    // ?probe=draw draws one small picture and throws it away, so "can this key
+    // still draw" has an answer that does not depend on anybody opening a book
+    // and waiting. It costs a fraction of a penny, so it is asked for, never run
+    // by default.
+    const asked = req.query?.probe ?? /[?&]probe=([a-z]+)/.exec(req.url ?? '')?.[1]
+    if (asked === 'draw') {
+      if (!googleKey) {
+        res.status(200).json({ provider, probe: 'needs a Google key' })
+        return
+      }
+      const abort = new AbortController()
+      const timer = setTimeout(() => abort.abort(), TIMEOUT_MS)
+      try {
+        const drawn = await generateWithGoogle(googleKey, 'A small red lighthouse on a rock.', 1, abort.signal)
+        res.status(200).json(drawn.ok
+          ? { provider, drew: true, model: await resolveGoogleModel(googleKey, abort.signal), bytes: drawn.image.length }
+          : { provider, drew: false, error: drawn.error })
+      } catch (err) {
+        res.status(200).json({
+          provider,
+          drew: false,
+          error: { code: 'network', message: err instanceof Error ? err.message : 'the probe failed' },
+        })
+      } finally {
+        clearTimeout(timer)
+      }
+      return
+    }
     res.status(200).json({
       configured: provider !== null,
       provider,

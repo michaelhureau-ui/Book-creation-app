@@ -235,6 +235,38 @@ describe('the endpoint using a Google key', () => {
     expect((out.body as { error: { code: string } }).error.code).toBe('not_configured')
   })
 
+  it('draws one picture on demand so the key can be checked without opening a book', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) =>
+      String(url).includes('/models?')
+        ? new Response(JSON.stringify({
+          models: [{ name: 'models/imagen-4.0-generate', supportedGenerationMethods: ['predict'] }],
+        }), { status: 200 })
+        : new Response(JSON.stringify({
+          predictions: [{ bytesBase64Encoded: PNG_B64, mimeType: 'image/png' }],
+        }), { status: 200 })))
+
+    const { res, out } = makeRes()
+    await handler({ method: 'GET', url: '/api/generate-image?probe=draw' }, res)
+    expect(out.code).toBe(200)
+    expect(out.body).toMatchObject({ drew: true, model: 'imagen-4.0-generate' })
+    // The picture itself is thrown away; only its size is reported.
+    expect(JSON.stringify(out.body)).not.toContain(PNG_B64)
+  })
+
+  it('reports why the drawing probe failed instead of throwing', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) =>
+      String(url).includes('/models?')
+        ? new Response(JSON.stringify({
+          models: [{ name: 'models/imagen-4.0-generate', supportedGenerationMethods: ['predict'] }],
+        }), { status: 200 })
+        : new Response('{"error":{"message":"Your prepayment credits are depleted."}}', { status: 402 })))
+
+    const { res, out } = makeRes()
+    await handler({ method: 'GET', url: '/api/generate-image?probe=draw' }, res)
+    expect(out.code).toBe(200)
+    expect(out.body).toMatchObject({ drew: false })
+  })
+
   it('says generation is off when neither key is set', async () => {
     delete process.env.GOOGLE_API_KEY
     delete process.env.GEMINI_API_KEY
