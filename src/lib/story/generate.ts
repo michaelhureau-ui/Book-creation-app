@@ -6,6 +6,7 @@ import {
   buildGraphicPage, buildProseChapter, readGraphicPages, readOutline, readProsePages,
   startBook, type Outline, type StoryKind, type StoryLength,
 } from '@/lib/story/story'
+import { CHAPTERS_IN } from '@/lib/story/limits'
 
 export type StoryErrorCode =
   | 'not_configured' | 'empty_idea' | 'rejected' | 'rate_limited' | 'quota'
@@ -115,6 +116,7 @@ export async function writeStory(
     (await ask({ stage: 'outline', idea, kind, length, audience, show, retell }, signal)).outline)
 
   const total = outline.chapters.length
+  const wanted = CHAPTERS_IN[length]
   const bookId = await hooks.onStart(startBook(outline, kind))
   let written = 0
 
@@ -125,13 +127,17 @@ export async function writeStory(
 
     let reply: Record<string, unknown>
     try {
-      reply = await ask(
+      reply = await askWithRetries(
         { stage: 'chapter', idea, kind, length, audience, show, retell, outline, index: i }, signal)
     } catch (err) {
-      // Whatever is already written stays in the library; only say so if the
-      // book would otherwise be empty.
       if (written === 0 || signal?.aborted) throw err
-      break
+      // The chapters so far are saved, but stopping quietly is how a book
+      // asked for at two hundred pages came back at five with nothing said.
+      throw new StoryFailed(
+        err instanceof StoryFailed ? err.code : 'provider_error',
+        `The book stopped at chapter ${i + 1} of ${total}. `
+        + (err instanceof Error ? err.message : 'The story service failed.'),
+      )
     }
 
     if (kind === 'graphic') {
@@ -145,7 +151,43 @@ export async function writeStory(
   }
 
   hooks.onProgress({ done: written, total, label: 'Finishing up…' })
+  // A plan shorter than the book asked for makes a shorter book, and saying
+  // nothing about it leaves someone counting pages and wondering.
+  if (written > 0 && total < wanted) {
+    throw new StoryFailed(
+      'unreadable',
+      `The plan for this book only came back with ${total} `
+      + `${total === 1 ? 'chapter' : 'chapters'} instead of ${wanted}, so it is `
+      + `${total * 5} pages rather than ${wanted * 5}. Everything written is saved. `
+      + 'Try again — the next plan is usually the right length.',
+    )
+  }
   return { bookId, chapters: written }
+}
+
+/** Failures worth trying again: the service was busy, not the request wrong. */
+const PASSING = new Set<StoryErrorCode>(['network', 'provider_error', 'rate_limited'])
+
+/**
+ * Ask again when the answer was a passing failure.
+ *
+ * A long book is forty requests in a row, so a one-in-forty blip is near enough
+ * a certainty, and losing the rest of the book to it is the worst outcome
+ * available. Three tries with a pause between covers an overloaded model
+ * without hammering it.
+ */
+async function askWithRetries(
+  body: Ask, signal?: AbortSignal, waits = [1500, 4000],
+): Promise<Record<string, unknown>> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await ask(body, signal)
+    } catch (err) {
+      const passing = err instanceof StoryFailed && PASSING.has(err.code)
+      if (!passing || attempt >= waits.length || signal?.aborted) throw err
+      await new Promise((resolve) => setTimeout(resolve, waits[attempt]))
+    }
+  }
 }
 
 /** What to tell the writer when story writing is switched off on this deployment. */

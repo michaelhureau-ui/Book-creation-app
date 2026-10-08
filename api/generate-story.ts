@@ -336,6 +336,11 @@ export function chooseGoogleTextModel(models: GoogleModel[]): string | null {
 export function looksLikeWrongModel(status: number, body: string): boolean {
   const lower = body.toLowerCase()
   if (status === 402) return true
+  // "This model is currently experiencing high demand." One model being busy
+  // says nothing about the next one, and giving up here is how a 200-page book
+  // came back five pages long: the chapter after the busy one was never asked
+  // for.
+  if (status === 503) return true
   if (status === 429 || status === 400 || status === 404) {
     return lower.includes('only supports')
       || lower.includes('is not found')
@@ -488,12 +493,20 @@ function googlePayload(prompt: string, maxTokens: number, askForJson: boolean): 
  */
 export function refusalAdvice(tried: number, reasons: string[]): string {
   const money = reasons.some((r) => /credit|billing|prepay|payment/i.test(r))
+  const busy = reasons.some((r) => /high demand|overload|unavailable|try again later/i.test(r))
   const head = `None of the ${tried} models this key can reach would write the story.`
-  return money
-    ? `${head} The Google account behind the key has run out of credit, which stops every`
+  if (money) {
+    return `${head} The Google account behind the key has run out of credit, which stops every`
       + ' model it has — even the free ones. Add credit at aistudio.google.com, or put a new'
       + ' key on the deployment. Google said:'
-    : `${head} They have been retired or are out of this key's reach. Google said:`
+  }
+  // Busy is the one that really does pass on its own, so it is the one case
+  // where waiting is the right advice rather than a brush-off.
+  if (busy) {
+    return `${head} Google is busy right now — this one passes on its own. Give it a few`
+      + ' minutes and press the button again. Google said:'
+  }
+  return `${head} They have been retired or are out of this key's reach. Google said:`
 }
 
 async function writeWithGoogle(
