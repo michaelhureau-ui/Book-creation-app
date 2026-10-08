@@ -407,6 +407,11 @@ export function resetGoogleTextModelCache(): void {
   cachedGoogleModel = null
 }
 
+/** Which model last wrote something, if one has. */
+export function cachedGoogleTextModel(): string | null {
+  return cachedGoogleModel
+}
+
 /**
  * At most this many models are tried before giving up. The list mixes tiers, so
  * a key with no credit can be refused by several in a row before reaching one
@@ -705,7 +710,50 @@ export default async function handler(req: Req, res: Res): Promise<void> {
     // ?probe=models checks the key against every model it can see and says what
     // each one answered. It writes a word per model, so it is asked for, never
     // run by default.
-    const asked = req.query?.probe ?? (req.url?.includes('probe=models') ? 'models' : undefined)
+    const fromUrl = /[?&]probe=([a-z]+)/.exec(req.url ?? '')?.[1]
+    const asked = req.query?.probe ?? fromUrl
+    // ?probe=write goes the whole way: the real prompt, the real model, the
+    // real parse. A key that answers "yes" to one word has still not proved it
+    // can write a book, and that gap is where every one of these faults has
+    // been hiding.
+    if (asked === 'write') {
+      if (!googleKey) {
+        res.status(200).json({ provider, probe: 'needs a Google key' })
+        return
+      }
+      const abort = new AbortController()
+      const timer = setTimeout(() => abort.abort(), TIMEOUT_MS)
+      try {
+        const written = await writeWithGoogle(
+          googleKey,
+          buildOutlinePrompt('a fox who keeps a lighthouse', 'prose', 'short', 'middle'),
+          OUTLINE_TOKENS,
+          abort.signal,
+        )
+        if (!written.ok) {
+          res.status(200).json({ provider, wrote: false, error: written.error })
+          return
+        }
+        const outline = parseJsonBody(written.text) as
+          { title?: string; chapters?: unknown[] } | null
+        res.status(200).json({
+          provider,
+          wrote: Boolean(outline && Array.isArray(outline.chapters) && outline.chapters.length > 0),
+          model: cachedGoogleTextModel(),
+          title: outline?.title ?? null,
+          chapters: Array.isArray(outline?.chapters) ? outline.chapters.length : 0,
+        })
+      } catch (err) {
+        res.status(200).json({
+          provider,
+          wrote: false,
+          error: { code: 'network', message: err instanceof Error ? err.message : 'the probe failed' },
+        })
+      } finally {
+        clearTimeout(timer)
+      }
+      return
+    }
     if (asked === 'models') {
       if (!googleKey) {
         res.status(200).json({ configured: provider !== null, provider, probe: 'needs a Google key' })

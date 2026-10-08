@@ -321,6 +321,29 @@ describe('a model that cannot write at all', () => {
     expect(asked.some((u) => u.includes('generateContent'))).toBe(true)
   })
 
+  it('writes a real outline when asked to prove the whole path works', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) =>
+      String(url).includes('/models?')
+        ? jsonResponse({ models: [{ name: 'models/gemini-3.8-flash', supportedGenerationMethods: ['generateContent'] }] })
+        : jsonResponse({ candidates: [{ content: { parts: [{ text: '{"title":"The Lamp","chapters":[{"title":"One","summary":"S"},{"title":"Two","summary":"S"}]}' }] } }] })))
+    const { res, out } = makeRes()
+    await handler({ method: 'GET', url: '/api/generate-story?probe=write' }, res)
+    expect(out.code).toBe(200)
+    expect(out.body).toMatchObject({ wrote: true, title: 'The Lamp', chapters: 2, model: 'gemini-3.8-flash' })
+  })
+
+  it('reports the refusal rather than throwing when the write probe fails', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) =>
+      String(url).includes('/models?')
+        ? jsonResponse({ models: [{ name: 'models/gemini-3.8-flash', supportedGenerationMethods: ['generateContent'] }] })
+        : jsonResponse({ error: { message: 'Your prepayment credits are depleted.' } }, 402)))
+    const { res, out } = makeRes()
+    await handler({ method: 'GET', url: '/api/generate-story?probe=write' }, res)
+    expect(out.code).toBe(200)
+    expect(out.body).toMatchObject({ wrote: false })
+    expect(JSON.stringify(out.body)).toContain('run out of credit')
+  })
+
   it('says the models refused rather than that the account is empty', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) =>
       String(url).includes('/models?')
