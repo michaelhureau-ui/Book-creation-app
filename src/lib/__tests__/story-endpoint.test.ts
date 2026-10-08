@@ -344,6 +344,43 @@ describe('a model that cannot write at all', () => {
     expect(JSON.stringify(out.body)).toContain('run out of credit')
   })
 
+  it('moves on from a model that stops answering instead of hanging', async () => {
+    vi.useFakeTimers()
+    const tried: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { signal?: AbortSignal }) => {
+      const target = String(url)
+      if (target.includes('/models?')) {
+        return jsonResponse({
+          models: ['gemini-3.8-flash', 'gemini-2.0-flash'].map((name) => ({
+            name: `models/${name}`, supportedGenerationMethods: ['generateContent'],
+          })),
+        })
+      }
+      const model = /models\/([^:]+):/.exec(target)?.[1] ?? ''
+      tried.push(model)
+      if (model === 'gemini-3.8-flash') {
+        // Never answers — exactly what an overloaded model does.
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            const err = new Error('aborted')
+            err.name = 'AbortError'
+            reject(err)
+          })
+        })
+      }
+      return jsonResponse({ candidates: [{ content: { parts: [{ text: '{"title":"T","chapters":[{"title":"One","summary":"S"}]}' }] } }] })
+    }))
+
+    const { res, out } = makeRes()
+    const handled = handler({ method: 'POST', body: { idea: 'a fox at sea' } }, res)
+    await vi.advanceTimersByTimeAsync(30_000)
+    await handled
+    vi.useRealTimers()
+
+    expect(tried).toEqual(['gemini-3.8-flash', 'gemini-2.0-flash'])
+    expect(out.code).toBe(200)
+  })
+
   it('says the models refused rather than that the account is empty', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) =>
       String(url).includes('/models?')

@@ -485,7 +485,13 @@ const MODEL_ATTEMPTS = 30
  * Refusals come back in well under a second each, so this is only reached when
  * something is wrong with the account rather than with the model.
  */
-const WALK_BUDGET_MS = 25_000
+const WALK_BUDGET_MS = 35_000
+
+/**
+ * How long one model gets before its turn is over. Generous enough for a real
+ * answer, short enough that two dead ends still leave time to find a live one.
+ */
+const ATTEMPT_MS = 22_000
 
 async function resolveGoogleModels(key: string, signal: AbortSignal): Promise<string[]> {
   if (process.env.GOOGLE_TEXT_MODEL) return [process.env.GOOGLE_TEXT_MODEL]
@@ -534,7 +540,8 @@ function googlePayload(prompt: string, maxTokens: number, askForJson: boolean): 
  */
 export function refusalAdvice(tried: number, reasons: string[]): string {
   const money = reasons.some((r) => /credit|billing|prepay|payment/i.test(r))
-  const busy = reasons.some((r) => /high demand|overload|unavailable|try again later/i.test(r))
+  const busy = reasons.some(
+    (r) => /high demand|overload|unavailable|try again later|took too long/i.test(r))
   const head = `None of the ${tried} models this key can reach would write the story.`
   if (money) {
     return `${head} The Google account behind the key has run out of credit, which stops every`
@@ -553,13 +560,37 @@ export function refusalAdvice(tried: number, reasons: string[]): string {
 async function writeWithGoogle(
   key: string, prompt: string, maxTokens: number, signal: AbortSignal,
 ): Promise<Written> {
-  const send = (model: string, askForJson: boolean): Promise<Response> =>
-    fetch(`${GOOGLE_BASE}/models/${model}:generateContent`, {
-      method: 'POST',
-      headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
-      body: googlePayload(prompt, maxTokens, askForJson),
-      signal,
-    })
+  /**
+   * One model, one go, with its own clock.
+   *
+   * A model that has stopped answering holds the line until the whole request
+   * is killed, and then nobody is told anything at all — which is worse than
+   * any refusal. Giving each attempt a slice of the budget means a model that
+   * hangs costs that slice and nothing more.
+   */
+  const send = async (model: string, askForJson: boolean): Promise<Response | 'timeout'> => {
+    const attempt = new AbortController()
+    const giveUp = setTimeout(() => attempt.abort(), ATTEMPT_MS)
+    const relay = (): void => attempt.abort()
+    signal.addEventListener('abort', relay)
+    try {
+      return await fetch(`${GOOGLE_BASE}/models/${model}:generateContent`, {
+        method: 'POST',
+        headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
+        body: googlePayload(prompt, maxTokens, askForJson),
+        signal: attempt.signal,
+      })
+    } catch (err) {
+      // The caller's own abort is a real failure; ours is just this model's turn
+      // being over.
+      if (signal.aborted) throw err
+      if (err instanceof Error && err.name === 'AbortError') return 'timeout'
+      throw err
+    } finally {
+      clearTimeout(giveUp)
+      signal.removeEventListener('abort', relay)
+    }
+  }
 
   const candidates = await resolveGoogleModels(key, signal)
   // Worth one last go: every model in the list may be one this key cannot use.
@@ -574,7 +605,18 @@ async function writeWithGoogle(
 
   for (const candidate of candidates) {
     model = candidate
-    res = await send(model, true)
+    const first = await send(model, true)
+
+    if (first === 'timeout') {
+      refused.push({ model, reason: 'took too long to answer' })
+      console.error(`[generate-story] ${model} ran out of time; trying the next model`)
+      cachedGoogleModel = null
+      res = null
+      if (Date.now() - startedAt > WALK_BUDGET_MS) break
+      continue
+    }
+
+    res = first
     if (res.ok) break
     body = await res.text().catch(() => '')
 
@@ -583,7 +625,14 @@ async function writeWithGoogle(
     // before giving up on this model.
     if (res.status === 400 && !looksLikeWrongModel(res.status, body)
         && describeProviderFailure(res.status, body).code === 'provider_error') {
-      res = await send(model, false)
+      const plain = await send(model, false)
+      if (plain === 'timeout') {
+        refused.push({ model, reason: 'took too long to answer' })
+        res = null
+        if (Date.now() - startedAt > WALK_BUDGET_MS) break
+        continue
+      }
+      res = plain
       if (res.ok) break
       body = await res.text().catch(() => '')
     }
@@ -602,6 +651,18 @@ async function writeWithGoogle(
   // Every model that was tried turned us away — which is a different problem
   // from one model being out of reach, and wants a different thing said.
   const refusedEveryModel = refused.length > 0 && refused[refused.length - 1].model === model
+  // A walk that ran out of time has no response to explain itself with, so the
+  // refusals it collected are the whole story.
+  if (!res && refusedEveryModel) {
+    return {
+      ok: false,
+      status: 503,
+      error: {
+        code: 'rate_limited',
+        message: refusalAdvice(refused.length, refused.map((r) => r.reason)).replace(/ Google said:$/, ''),
+      },
+    }
+  }
 
   if (!res || !res.ok) {
     // Reaches the deployment's runtime logs. The key is never part of this.
