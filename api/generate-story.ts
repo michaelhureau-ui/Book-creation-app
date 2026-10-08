@@ -589,6 +589,59 @@ export function refusalAdvice(tried: number, reasons: string[]): string {
   return `${head} They have been retired or are out of this key's reach. Google said:`
 }
 
+/** A word's worth of answer: enough to prove a model is there. */
+const PING_MS = 6_000
+const PING_TOKENS = 8
+/** How many live models to hold on to — one to write with, one to fall back on. */
+const LIVE_WANTED = 2
+
+/**
+ * Which of these models are answering right now.
+ *
+ * Asked for a whole chapter, a model that has stopped answering and a model
+ * that is thinking look identical for twenty seconds. Asked for one word, they
+ * do not: a healthy model answers in about a second. So the walk is done with
+ * single words — cheap, quick, and it means a bad hour at Google costs seconds
+ * rather than the whole request.
+ */
+async function liveModels(
+  key: string, candidates: string[], signal: AbortSignal,
+  refused: { model: string; reason: string }[], startedAt: number,
+): Promise<string[]> {
+  const found: string[] = []
+  for (const model of candidates) {
+    if (found.length >= LIVE_WANTED) break
+    if (Date.now() - startedAt > WALK_BUDGET_MS) break
+
+    const res = await fetchWithin(`${GOOGLE_BASE}/models/${model}:generateContent`, {
+      method: 'POST',
+      headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
+      body: googlePayload('Say the word yes.', PING_TOKENS, false),
+    }, PING_MS, signal)
+
+    if (res === 'timeout') {
+      refused.push({ model, reason: 'took too long to answer' })
+      console.error(`[generate-story] ${model} did not answer a one-word question; skipping it`)
+      continue
+    }
+    if (res.ok) { found.push(model); continue }
+
+    const body = await res.text().catch(() => '')
+    if (!looksLikeWrongModel(res.status, body)) {
+      // Not a refusal we understand — worth trying properly rather than
+      // writing the model off on the strength of one odd answer.
+      found.push(model)
+      // A key the provider will not take is a key no other model will take
+      // either, so there is nothing to be gained by asking them all.
+      if (describeProviderFailure(res.status, body).code === 'not_configured') break
+      continue
+    }
+    refused.push({ model, reason: providerReason(body) })
+    console.error(`[generate-story] ${model} answered ${res.status}; trying the next model`)
+  }
+  return found
+}
+
 async function writeWithGoogle(
   key: string, prompt: string, maxTokens: number, signal: AbortSignal,
 ): Promise<Written> {
@@ -618,7 +671,15 @@ async function writeWithGoogle(
   /** What each model said when it turned this key away, in the order tried. */
   const refused: { model: string; reason: string }[] = []
 
-  for (const candidate of candidates) {
+  // Whole chapters take half a minute to write, so trying them one model at a
+  // time means two dead models use up the request. A word costs a second, and
+  // tells a model that has stopped answering from one that is merely working —
+  // which is the only way to reach a live model further down the list.
+  const live = cachedGoogleModel
+    ? [cachedGoogleModel]
+    : await liveModels(key, candidates, signal, refused, startedAt)
+
+  for (const candidate of live) {
     model = candidate
     const first = await send(model, true)
 
@@ -665,19 +726,10 @@ async function writeWithGoogle(
 
   // Every model that was tried turned us away — which is a different problem
   // from one model being out of reach, and wants a different thing said.
-  const refusedEveryModel = refused.length > 0 && refused[refused.length - 1].model === model
-  // A walk that ran out of time has no response to explain itself with, so the
-  // refusals it collected are the whole story.
-  if (!res && refusedEveryModel) {
-    return {
-      ok: false,
-      status: 503,
-      error: {
-        code: 'rate_limited',
-        message: refusalAdvice(refused.length, refused.map((r) => r.reason)).replace(/ Google said:$/, ''),
-      },
-    }
-  }
+  // Nothing answering the one-word question counts too: there was never a
+  // model to write with.
+  const refusedEveryModel = (live.length === 0 && refused.length > 0)
+    || (refused.length > 0 && refused[refused.length - 1].model === model)
 
   if (!res || !res.ok) {
     // Reaches the deployment's runtime logs. The key is never part of this.
@@ -685,13 +737,20 @@ async function writeWithGoogle(
     if (refusedEveryModel) {
       // Not the same thing as an allowance running out, and saying so sends
       // someone looking for a problem they do not have.
+      const reasons = refused.map((r) => r.reason)
+      const silent = /took too long/
+      // A walk that only ever met silence has no response to quote, and
+      // "Google said: took too long to answer" is not Google saying anything.
+      const theirs = providerReason(body) || reasons.filter((r) => r && !silent.test(r)).pop() || ''
+      const advice = refusalAdvice(refused.length, reasons)
+      const busy = reasons.every((r) => !r || silent.test(r) || /high demand|overload|unavailable/i.test(r))
       return {
         ok: false,
-        status: 502,
-        error: withReason({
-          code: 'quota',
-          message: refusalAdvice(refused.length, refused.map((r) => r.reason)),
-        }, body),
+        status: busy ? 503 : 502,
+        error: {
+          code: busy ? 'rate_limited' : 'quota',
+          message: theirs ? `${advice} ${theirs}` : advice.replace(/\s*Google said:$/, ''),
+        },
       }
     }
     return {

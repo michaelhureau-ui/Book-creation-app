@@ -19,6 +19,19 @@ function errorOf(body: unknown): { code: string; message: string } {
   return (body as { error: { code: string; message: string } }).error
 }
 
+/**
+ * The endpoint asks each model for a single word before trusting it with a
+ * chapter, so a test counting attempts has to tell the two apart.
+ */
+function isPing(init?: { body?: string }): boolean {
+  return (init?.body ?? '').includes('Say the word yes.')
+}
+
+/** The models the endpoint reached for, in order, each named once. */
+function walked(tried: string[]): string[] {
+  return tried.filter((name, i) => tried.indexOf(name) === i)
+}
+
 function jsonResponse(body: unknown, status = 200): Response {
   return {
     ok: status >= 200 && status < 300,
@@ -220,7 +233,7 @@ describe('a model that cannot write at all', () => {
     // What production actually answered: every 3.x refused for billing.
     const paid = ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash']
     const tried: string[] = []
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, _init?: { body?: string }) => {
       const target = String(url)
       if (target.includes('/models?')) {
         return jsonResponse({
@@ -241,7 +254,7 @@ describe('a model that cannot write at all', () => {
     expect(out.code).toBe(200)
     // A lite model is cheap and capable; excluding it left nothing to fall to.
     expect(tried[tried.length - 1]).toBe('gemini-3.8-flash-lite')
-    expect(tried.length).toBeGreaterThan(4)
+    expect(walked(tried).length).toBeGreaterThan(4)
   })
 
   it('keeps walking past the first ten refusals to reach one that writes', async () => {
@@ -250,7 +263,7 @@ describe('a model that cannot write at all', () => {
     const paid = Array.from({ length: 12 }, (_, i) => `gemini-3.${12 - i}-flash`)
     const free = 'gemini-2.0-flash'
     const tried: string[] = []
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, _init?: { body?: string }) => {
       const target = String(url)
       if (target.includes('/models?')) {
         return jsonResponse({
@@ -269,7 +282,8 @@ describe('a model that cannot write at all', () => {
     const { res, out } = makeRes()
     await handler({ method: 'POST', body: { idea: 'a fox at sea' } }, res)
     expect(out.code).toBe(200)
-    expect(tried.length).toBe(13)
+    // Twelve the key cannot pay for, then the one it can.
+    expect(walked(tried).indexOf(free)).toBe(12)
     expect(tried[tried.length - 1]).toBe(free)
   })
 
@@ -349,6 +363,7 @@ describe('a model that cannot write at all', () => {
     const asked: string[] = []
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { signal?: AbortSignal }) => {
       const target = String(url)
+      if (!target.includes('/models?') && isPing(init)) return jsonResponse({ candidates: [{ content: { parts: [{ text: 'yes' }] } }] })
       asked.push(target.includes('/models?') ? 'list' : 'write')
       if (target.includes('/models?')) {
         // The list hangs: no refusal, no answer, nothing to log.
@@ -377,7 +392,9 @@ describe('a model that cannot write at all', () => {
   it('moves on from a model that stops answering instead of hanging', async () => {
     vi.useFakeTimers()
     const tried: string[] = []
-    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { signal?: AbortSignal }) => {
+    vi.stubGlobal('fetch', vi.fn(async (
+      url: string, init?: { signal?: AbortSignal; body?: string },
+    ) => {
       const target = String(url)
       if (target.includes('/models?')) {
         return jsonResponse({
@@ -407,7 +424,7 @@ describe('a model that cannot write at all', () => {
     await handled
     vi.useRealTimers()
 
-    expect(tried).toEqual(['gemini-3.8-flash', 'gemini-2.0-flash'])
+    expect(walked(tried).slice(0, 2)).toEqual(['gemini-3.8-flash', 'gemini-2.0-flash'])
     expect(out.code).toBe(200)
   })
 
@@ -443,7 +460,7 @@ describe('a model that cannot write at all', () => {
 
   it('moves down the list when a model wants money the account has not got', async () => {
     const tried: string[] = []
-    const fetchMock = vi.fn(async (url: string) => {
+    const fetchMock = vi.fn(async (url: string, _init?: { body?: string }) => {
       const target = String(url)
       if (target.includes('/models?')) {
         return jsonResponse({
@@ -463,7 +480,7 @@ describe('a model that cannot write at all', () => {
     const { res, out } = makeRes()
     await handler({ method: 'POST', body: { idea: 'a fox at sea' } }, res)
     expect(out.code).toBe(200)
-    expect(tried).toEqual(['gemini-3.8-flash', 'gemini-2.5-flash'])
+    expect(walked(tried).slice(0, 2)).toEqual(['gemini-3.8-flash', 'gemini-2.5-flash'])
   })
 
   it('gives up with the provider’s own words when no model will do', async () => {
@@ -532,9 +549,11 @@ describe('a 400 that cannot otherwise be explained', () => {
     await handler({ method: 'POST', body: { idea: 'a fox at sea' } }, res)
     expect(out.code).toBe(200)
     expect(out.body).toMatchObject({ outline: { title: 'T' } })
-    const bodies = fetchMock.mock.calls.map((c) => String((c[1] as { body?: string } | undefined)?.body ?? ''))
+    const bodies = fetchMock.mock.calls
+      .map((c) => String((c[1] as { body?: string } | undefined)?.body ?? ''))
+      .filter((b) => b.includes('a fox at sea'))
     expect(bodies.filter((b) => b.includes('responseMimeType'))).toHaveLength(1)
-    expect(bodies.filter((b) => b.includes('maxOutputTokens') && !b.includes('responseMimeType'))).toHaveLength(1)
+    expect(bodies.filter((b) => !b.includes('responseMimeType'))).toHaveLength(1)
   })
 
   it('does not waste a second attempt on a key the provider rejected', async () => {
@@ -546,8 +565,8 @@ describe('a 400 that cannot otherwise be explained', () => {
     const { res, out } = makeRes()
     await handler({ method: 'POST', body: { idea: 'a fox at sea' } }, res)
     expect(errorOf(out.body).code).toBe('not_configured')
-    // One list call and one generate call: no retry.
-    expect(fetchMock.mock.calls).toHaveLength(2)
+    // The list, the one-word question, and the story itself: no retry on top.
+    expect(fetchMock.mock.calls).toHaveLength(3)
   })
 
   it('tells the writer what the provider actually objected to', async () => {
