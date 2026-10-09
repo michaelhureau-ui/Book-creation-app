@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import handler, {
   describeProviderFailure as describeStoryFailure, looksLikeWrongModel, probeGoogleModels,
-  providerReason, refusalAdvice, resetGoogleTextModelCache, withReason,
+  providerReason, refusalAdvice, resetGoogleTextModelCache, thinkingFor, withReason,
 } from '../../../api/generate-story'
 import { describeProviderFailure as describeImageFailure } from '../../../api/generate-image'
 
@@ -600,5 +600,50 @@ describe('the two endpoints classify provider failures the same way', () => {
 
   it.each(cases)('status %i with %s', (status, body) => {
     expect(describeStoryFailure(status, body).code).toBe(describeImageFailure(status, body).code)
+  })
+})
+
+describe('how hard the model is asked to think', () => {
+  const original = process.env.GOOGLE_API_KEY
+  beforeEach(() => { process.env.GOOGLE_API_KEY = 'test-key'; resetGoogleTextModelCache() })
+  afterEach(() => {
+    if (original === undefined) delete process.env.GOOGLE_API_KEY
+    else process.env.GOOGLE_API_KEY = original
+    vi.unstubAllGlobals()
+  })
+
+  it('asks a Gemini 3 model for a level and an older one for a budget', () => {
+    // The two generations take different fields, and sending both is an error.
+    expect(thinkingFor('gemini-3.8-flash', true)).toEqual({ thinkingConfig: { thinkingLevel: 'low' } })
+    expect(thinkingFor('gemini-2.5-flash', true)).toEqual({ thinkingConfig: { thinkingBudget: 0 } })
+    expect(JSON.stringify(thinkingFor('gemini-3.8-flash', true))).not.toContain('thinkingBudget')
+  })
+
+  it('asks for nothing at all when the light touch is turned off', () => {
+    expect(thinkingFor('gemini-3.8-flash', false)).toEqual({})
+  })
+
+  it('drops the thinking setting too when a model objects to the request', async () => {
+    const bodies: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { body?: string }) => {
+      if (String(url).includes('/models?')) {
+        return jsonResponse({ models: [{ name: 'models/gemini-3.8-flash', supportedGenerationMethods: ['generateContent'] }] })
+      }
+      const body = String(init?.body ?? '')
+      if (isPing(init)) return jsonResponse({ candidates: [{ content: { parts: [{ text: 'yes' }] } }] })
+      bodies.push(body)
+      // An older model knows neither field and says so.
+      if (body.includes('thinkingConfig')) {
+        return jsonResponse({ error: { message: 'Unknown name "thinkingConfig": Cannot find field.' } }, 400)
+      }
+      return jsonResponse({ candidates: [{ content: { parts: [{ text: '{"title":"T","chapters":[{"title":"One","summary":"S"}]}' }] } }] })
+    }))
+
+    const { res, out } = makeRes()
+    await handler({ method: 'POST', body: { idea: 'a fox at sea' } }, res)
+    expect(out.code).toBe(200)
+    // First try carries it, the retry does not, and the story still arrives.
+    expect(bodies[0]).toContain('thinkingConfig')
+    expect(bodies[1]).not.toContain('thinkingConfig')
   })
 })

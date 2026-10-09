@@ -562,13 +562,34 @@ type Written =
   | { ok: true; text: string; finishReason: string }
   | { ok: false; status: number; error: StoryError }
 
-function googlePayload(prompt: string, maxTokens: number, askForJson: boolean): string {
+/**
+ * How hard to let the model think before it writes.
+ *
+ * These models think before answering, and the thinking is most of the wait: a
+ * chapter that times out has usually spent longer deciding what to write than
+ * writing it. A bedtime adventure does not need deep reasoning, so the app asks
+ * for a light touch — and asks differently depending on the generation, because
+ * Gemini 3 takes a level, 2.5 takes a token budget, and sending both is an
+ * error.
+ */
+export function thinkingFor(model: string, light: boolean): Record<string, unknown> {
+  if (!light) return {}
+  return /gemini-3/i.test(model)
+    ? { thinkingConfig: { thinkingLevel: 'low' } }
+    : { thinkingConfig: { thinkingBudget: 0 } }
+}
+
+function googlePayload(
+  prompt: string, maxTokens: number, askForJson: boolean,
+  model = '', light = false,
+): string {
   return JSON.stringify({
     contents: [{ parts: [{ text: prompt }] }],
     generationConfig: {
       // Not every model accepts being told to answer in JSON. The reply is
       // parsed out of surrounding prose anyway, so this is a preference.
       ...(askForJson ? { responseMimeType: 'application/json' } : {}),
+      ...thinkingFor(model, light),
       temperature: 0.9,
       maxOutputTokens: maxTokens,
     },
@@ -660,6 +681,8 @@ async function liveModels(
 
 async function writeWithGoogle(
   key: string, prompt: string, maxTokens: number, signal: AbortSignal,
+  /** Ask the model to think lightly; the probe turns it off to compare. */
+  light = true,
 ): Promise<Written> {
   /**
    * One model, one go, with its own clock.
@@ -670,12 +693,12 @@ async function writeWithGoogle(
    * hangs costs that slice and nothing more.
    */
   const send = (
-    model: string, askForJson: boolean, deadline: number,
+    model: string, askForJson: boolean, deadline: number, think = light,
   ): Promise<Response | 'timeout'> =>
     fetchWithin(`${GOOGLE_BASE}/models/${model}:generateContent`, {
       method: 'POST',
       headers: { 'x-goog-api-key': key, 'Content-Type': 'application/json' },
-      body: googlePayload(prompt, maxTokens, askForJson),
+      body: googlePayload(prompt, maxTokens, askForJson, model, think),
     }, Math.max(MIN_ATTEMPT_MS, deadline - Date.now()), signal)
 
   const candidates = await resolveGoogleModels(key, signal)
@@ -718,11 +741,12 @@ async function writeWithGoogle(
     body = await res.text().catch(() => '')
 
     // A 400 we cannot otherwise explain is a complaint about the request, and
-    // asking for JSON is the least standard thing in it. Try again plainly
-    // before giving up on this model.
+    // the two least standard things in it are asking for JSON and asking the
+    // model to think lightly. Drop both and try again before giving up on this
+    // model — an older one may know neither field.
     if (res.status === 400 && !looksLikeWrongModel(res.status, body)
         && describeProviderFailure(res.status, body).code === 'provider_error') {
-      const plain = await send(model, false, deadline)
+      const plain = await send(model, false, deadline, false)
       if (plain === 'timeout') {
         refused.push({ model, reason: 'took too long to answer' })
         res = null
@@ -742,12 +766,15 @@ async function writeWithGoogle(
     cachedGoogleModel = null
   }
 
-  // Every model that was tried turned us away — which is a different problem
-  // from one model being out of reach, and wants a different thing said.
-  // Nothing answering the one-word question counts too: there was never a
-  // model to write with.
-  const refusedEveryModel = (live.length === 0 && refused.length > 0)
-    || (refused.length > 0 && refused[refused.length - 1].model === model)
+  // Every model that was tried turned us away, or none of them ever answered —
+  // either way there was never a model to write with, which is a different
+  // problem from one model failing and wants a different thing said.
+  //
+  // Comparing the last refusal against the model the loop happened to stop on
+  // got this wrong whenever the walk ran out of budget before trying the next
+  // one, and a writer whose chapter had timed out was told "the story service
+  // failed (502)" — true, useless, and not what happened.
+  const refusedEveryModel = refused.length > 0 && (!res || looksLikeWrongModel(res.status, body))
 
   if (!res || !res.ok) {
     // Reaches the deployment's runtime logs. The key is never part of this.
@@ -941,36 +968,65 @@ export default async function handler(req: Req, res: Res): Promise<void> {
         req.url?.includes('length=long') ? 'long'
           : req.url?.includes('length=medium') ? 'medium' : 'short'
       const probeKind: StoryKind = req.url?.includes('kind=graphic') ? 'graphic' : 'prose'
+      // A chapter is the call that actually times out, so the probe has to be
+      // able to ask for one rather than only for a plan.
+      const probeChapter = req.url?.includes('stage=chapter')
+      const probeThinking = !req.url?.includes('think=full')
       const abort = new AbortController()
       const timer = setTimeout(() => abort.abort(), TIMEOUT_MS)
       const startedAt = Date.now()
       try {
+        // A canned plan, so a chapter can be asked for without writing the plan
+        // first — the point is to time the one call, not the whole book.
+        const plan = {
+          title: 'The Lantern at Bramble Head',
+          cast: [{ name: 'Rell', look: 'a small red fox in a yellow oilskin coat' }],
+          chapters: Array.from({ length: shapeOf(probeKind, probeLength).chapters }, (_, i) => ({
+            title: `Chapter ${i + 1}: The Light Goes Out`,
+            summary: 'Rell climbs the stair to relight the lamp and finds something on the rocks.',
+          })),
+        }
         const written = await writeWithGoogle(
           googleKey,
-          buildOutlinePrompt('a fox who keeps a lighthouse', probeKind, probeLength, 'middle'),
-          OUTLINE_TOKENS,
+          probeChapter
+            ? buildChapterPrompt('a fox who keeps a lighthouse', probeKind, probeLength, 'middle', plan, 3)
+            : buildOutlinePrompt('a fox who keeps a lighthouse', probeKind, probeLength, 'middle'),
+          probeChapter ? CHAPTER_TOKENS : OUTLINE_TOKENS,
           abort.signal,
+          probeThinking,
         )
         if (!written.ok) {
-          res.status(200).json({ provider, wrote: false, error: written.error })
+          res.status(200).json({
+            provider,
+            wrote: false,
+            stage: probeChapter ? 'chapter' : 'outline',
+            thinking: probeThinking ? 'light' : 'full',
+            seconds: Math.round((Date.now() - startedAt) / 100) / 10,
+            error: written.error,
+          })
           return
         }
-        const outline = parseJsonBody(written.text) as
-          { title?: string; chapters?: unknown[] } | null
+        const parsedReply = parseJsonBody(written.text) as
+          { title?: string; chapters?: unknown[]; pages?: unknown[] } | null
         res.status(200).json({
           provider,
-          wrote: Boolean(outline && Array.isArray(outline.chapters) && outline.chapters.length > 0),
+          wrote: probeChapter
+            ? Boolean(parsedReply && Array.isArray(parsedReply.pages) && parsedReply.pages.length > 0)
+            : Boolean(parsedReply && Array.isArray(parsedReply.chapters) && parsedReply.chapters.length > 0),
+          stage: probeChapter ? 'chapter' : 'outline',
+          thinking: probeThinking ? 'light' : 'full',
           model: cachedGoogleTextModel(),
           length: probeLength,
           kind: probeKind,
           // What the book is supposed to be, against what the plan would make it.
           wantedChapters: shapeOf(probeKind, probeLength).chapters,
-          chapters: Array.isArray(outline?.chapters) ? outline.chapters.length : 0,
-          title: outline?.title ?? null,
-          // A plan cut off mid-sentence is the difference between 200 pages and 5.
+          chapters: Array.isArray(parsedReply?.chapters) ? parsedReply.chapters.length : 0,
+          pages: Array.isArray(parsedReply?.pages) ? parsedReply.pages.length : 0,
+          title: parsedReply?.title ?? null,
+          // A reply cut off mid-sentence is the difference between 200 pages and 5.
           finishReason: written.finishReason,
           replyChars: written.text.length,
-          parsed: outline !== null,
+          parsed: parsedReply !== null,
           seconds: Math.round((Date.now() - startedAt) / 100) / 10,
         })
       } catch (err) {
