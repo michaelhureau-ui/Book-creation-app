@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { SHAPES, looksLikeWrongModel, refusalAdvice } from '../../../api/generate-story'
 import { StoryFailed, writeStory } from '@/lib/story/generate'
-import { CHAPTERS_IN } from '@/lib/story/limits'
+import { chaptersIn, pagesIn } from '@/lib/story/limits'
 
 /**
  * A 200-page book came back 5 pages long with nothing said about it. Three
@@ -44,9 +44,22 @@ describe('the length a book actually comes out', () => {
   afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
 
   it('mirrors the endpoint chapter counts, so a short plan can be spotted', () => {
-    for (const length of ['short', 'medium', 'long'] as const) {
-      expect(CHAPTERS_IN[length]).toBe(SHAPES.prose[length].chapters)
+    for (const kind of ['prose', 'graphic'] as const) {
+      for (const length of ['short', 'medium', 'long'] as const) {
+        expect(chaptersIn(kind, length)).toBe(SHAPES[kind][length].chapters)
+        expect(pagesIn(kind, length))
+          .toBe(SHAPES[kind][length].chapters * SHAPES[kind][length].pages)
+      }
     }
+  })
+
+  it('offers a graphic novel the lengths a graphic novel actually comes in', () => {
+    // A comic issue, a collection, a shelf-sized graphic novel — not 50/100/200.
+    expect(pagesIn('graphic', 'short')).toBe(24)
+    expect(pagesIn('graphic', 'medium')).toBe(64)
+    expect(pagesIn('graphic', 'long')).toBe(120)
+    // Novels are unchanged.
+    expect(pagesIn('prose', 'long')).toBe(200)
   })
 
   it('keeps writing after a chapter fails once, rather than losing the rest', async () => {

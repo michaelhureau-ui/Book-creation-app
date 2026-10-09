@@ -7,6 +7,12 @@ export interface ComicOptions {
   dpi: number
   includeTitlePage: boolean
   borders: boolean
+  /**
+   * Print-ready: the page carries an eighth of an inch of artwork past the cut
+   * line, with crop marks showing where that cut goes. A printer needs it; a
+   * tablet does not, and it would only show as a border there.
+   */
+  printReady: boolean
 }
 
 export const DEFAULT_COMIC_OPTIONS: ComicOptions = {
@@ -14,6 +20,7 @@ export const DEFAULT_COMIC_OPTIONS: ComicOptions = {
   dpi: 200,
   includeTitlePage: true,
   borders: true,
+  printReady: false,
 }
 
 export const DPI_CHOICES = [

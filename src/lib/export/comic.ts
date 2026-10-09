@@ -5,7 +5,10 @@ import { bookAuthor, bookTitle } from '@/lib/book'
 import { paletteOf } from '@/lib/cover'
 import { loadImages } from '@/lib/graphic/assets'
 import { layoutOf } from '@/lib/graphic/layouts'
-import { assetIdsOf, pageGeometry, renderPage, trimOf, type RenderOptions } from '@/lib/graphic/render'
+import {
+  assetIdsOf, BLEED_IN, MARKS_IN, pageGeometry, renderPage, trimOf,
+  type RenderOptions, type TrimId,
+} from '@/lib/graphic/render'
 import { BALLOON_LABELS } from '@/lib/graphic/pages'
 import { DEFAULT_COMIC_OPTIONS, type ComicOptions } from '@/lib/export/comic-options'
 
@@ -83,24 +86,90 @@ async function renderAll(book: Book, opts: ComicOptions): Promise<HTMLCanvasElem
   return canvases
 }
 
+export interface ComicPageBox {
+  /** The whole PDF page, in points. */
+  width: number
+  height: number
+  /** The finished page once it has been cut. */
+  trimWidth: number
+  trimHeight: number
+  /** Distance from the paper edge to the trim line. */
+  pad: number
+  /** Where the artwork goes, running past the trim line when printing. */
+  artX: number
+  artY: number
+  artWidth: number
+  artHeight: number
+}
+
+/**
+ * How big the page is and where the artwork sits on it.
+ *
+ * Screen-ready: the page is the trim size and the artwork fills it. Print-ready:
+ * the paper is larger, the artwork runs an eighth of an inch past where the cut
+ * will be so no white edge can show, and the margin beyond that holds the crop
+ * marks. Kept apart from jsPDF so the arithmetic can be checked on its own.
+ */
+export function comicPageBox(trimId: TrimId, printReady: boolean): ComicPageBox {
+  const trim = trimOf(trimId)
+  const pad = printReady ? (BLEED_IN + MARKS_IN) * 72 : 0
+  const bleed = printReady ? BLEED_IN * 72 : 0
+  const trimWidth = trim.width * 72
+  const trimHeight = trim.height * 72
+  return {
+    width: trimWidth + pad * 2,
+    height: trimHeight + pad * 2,
+    trimWidth,
+    trimHeight,
+    pad,
+    artX: pad - bleed,
+    artY: pad - bleed,
+    artWidth: trimWidth + bleed * 2,
+    artHeight: trimHeight + bleed * 2,
+  }
+}
+
+/**
+ * The short lines outside each corner that tell a guillotine where the page
+ * ends. They sit in the margin beyond the bleed, so they are cut away with it.
+ */
+function drawCropMarks(doc: jsPDF, pad: number, trimW: number, trimH: number): void {
+  const length = MARKS_IN * 72 * 0.8
+  const gap = BLEED_IN * 72
+  doc.setDrawColor(0)
+  doc.setLineWidth(0.4)
+  const xs = [pad, pad + trimW]
+  const ys = [pad, pad + trimH]
+  for (const x of xs) {
+    for (const y of ys) {
+      const outX = x === pad ? -1 : 1
+      const outY = y === pad ? -1 : 1
+      // One mark along each edge, starting clear of the bleed.
+      doc.line(x + outX * gap, y, x + outX * (gap + length), y)
+      doc.line(x, y + outY * gap, x, y + outY * (gap + length))
+    }
+  }
+}
+
 /**
  * A comic page is artwork, so the PDF embeds each rendered page as an image
  * rather than trying to describe panels and lettering as vectors.
  */
 export async function buildComicPdf(book: Book, partial: Partial<ComicOptions> = {}): Promise<Blob> {
   const opts = { ...DEFAULT_COMIC_OPTIONS, ...partial }
-  const trim = trimOf(opts.trim)
   const canvases = await renderAll(book, opts)
   if (canvases.length === 0) throw new Error('This graphic novel has no pages yet.')
 
-  // Page size in points; the canvas is scaled to fill it exactly.
-  const width = trim.width * 72
-  const height = trim.height * 72
-  const doc = new jsPDF({ unit: 'pt', format: [width, height], compress: true })
+  const box = comicPageBox(opts.trim, opts.printReady)
+  const doc = new jsPDF({ unit: 'pt', format: [box.width, box.height], compress: true })
 
   canvases.forEach((canvas, i) => {
-    if (i > 0) doc.addPage([width, height])
-    doc.addImage(canvas.toDataURL('image/jpeg', 0.9), 'JPEG', 0, 0, width, height, undefined, 'FAST')
+    if (i > 0) doc.addPage([box.width, box.height])
+    doc.addImage(
+      canvas.toDataURL('image/jpeg', 0.9), 'JPEG',
+      box.artX, box.artY, box.artWidth, box.artHeight, undefined, 'FAST',
+    )
+    if (opts.printReady) drawCropMarks(doc, box.pad, box.trimWidth, box.trimHeight)
   })
 
   doc.setProperties({ title: bookTitle(book), author: bookAuthor(book) })

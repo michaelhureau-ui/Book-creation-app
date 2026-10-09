@@ -6,7 +6,7 @@ import {
   buildGraphicPage, buildProseChapter, readGraphicPages, readOutline, readProsePages,
   startBook, type Outline, type StoryKind, type StoryLength,
 } from '@/lib/story/story'
-import { CHAPTERS_IN, OUTLINE_BATCH } from '@/lib/story/limits'
+import { chaptersIn, OUTLINE_BATCH, pagesIn, SHAPES } from '@/lib/story/limits'
 
 export type StoryErrorCode =
   | 'not_configured' | 'empty_idea' | 'rejected' | 'rate_limited' | 'quota'
@@ -118,7 +118,7 @@ export async function writeStory(
   const outline = await planBook(idea, kind, length, audience, show, retell, hooks, signal)
 
   const total = outline.chapters.length
-  const wanted = CHAPTERS_IN[length]
+  const wanted = chaptersIn(kind, length)
   const bookId = await hooks.onStart(startBook(outline, kind))
   let written = 0
 
@@ -160,7 +160,8 @@ export async function writeStory(
       'unreadable',
       `The plan for this book only came back with ${total} `
       + `${total === 1 ? 'chapter' : 'chapters'} instead of ${wanted}, so it is `
-      + `${total * 5} pages rather than ${wanted * 5}. Everything written is saved. `
+      + `${total * SHAPES[kind][length].pages} pages rather than ${pagesIn(kind, length)}. `
+      + 'Everything written is saved. '
       + 'Try again — the next plan is usually the right length.',
     )
   }
@@ -180,7 +181,7 @@ async function planBook(
   idea: string, kind: StoryKind, length: StoryLength, audience: string,
   show: string, retell: boolean, hooks: StoryHooks, signal?: AbortSignal,
 ): Promise<Outline> {
-  const wanted = CHAPTERS_IN[length]
+  const wanted = chaptersIn(kind, length)
   hooks.onProgress({ done: 0, total: 1, label: 'Planning the book…' })
 
   const first = readOutline(

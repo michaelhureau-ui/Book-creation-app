@@ -31,12 +31,17 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('how long a book is', () => {
-  it('offers about fifty, a hundred and two hundred pages', () => {
-    for (const kind of ['prose', 'graphic'] as const) {
-      expect(pagesIn(kind, 'short')).toBe(50)
-      expect(pagesIn(kind, 'medium')).toBe(100)
-      expect(pagesIn(kind, 'long')).toBe(200)
-    }
+  it('offers a novel at about fifty, a hundred and two hundred pages', () => {
+    expect(pagesIn('prose', 'short')).toBe(50)
+    expect(pagesIn('prose', 'medium')).toBe(100)
+    expect(pagesIn('prose', 'long')).toBe(200)
+  })
+
+  it('offers a graphic novel the lengths comics are actually printed at', () => {
+    // An issue, a collection, a graphic novel — a 200-page comic is not a thing.
+    expect(pagesIn('graphic', 'short')).toBe(24)
+    expect(pagesIn('graphic', 'medium')).toBe(64)
+    expect(pagesIn('graphic', 'long')).toBe(120)
   })
 
   /**
@@ -48,7 +53,7 @@ describe('how long a book is', () => {
     for (const kind of ['prose', 'graphic'] as const) {
       for (const length of ['short', 'medium', 'long'] as const) {
         expect(SHAPES[kind][length].pages).toBeLessThanOrEqual(8)
-        expect(SHAPES[kind][length].chapters).toBeGreaterThanOrEqual(10)
+        expect(SHAPES[kind][length].chapters).toBeGreaterThanOrEqual(6)
       }
     }
   })

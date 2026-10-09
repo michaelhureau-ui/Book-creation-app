@@ -8,7 +8,7 @@ import {
   checkStoryService, drawPanels, NOT_CONFIGURED_HELP, QUOTA_HELP, STALE_BUILD_HELP, StoryFailed,
   writeStory, type DrawingProgress, type ServiceCheck, type StoryProgress,
 } from '@/lib/story/generate'
-import { MAX_IDEA_LENGTH, MAX_SHOW_LENGTH } from '@/lib/story/limits'
+import { MAX_IDEA_LENGTH, MAX_SHOW_LENGTH, pagesIn } from '@/lib/story/limits'
 import { STYLES, type ArtStyle } from '@/lib/graphic/image-prompt'
 import type { BookKind } from '@/types'
 import type { StoryLength } from '@/lib/story/story'
@@ -18,11 +18,16 @@ const KINDS: { id: BookKind; name: string; hint: string; icon: (p: { className?:
   { id: 'graphic', name: 'Graphic novel', hint: 'Pages of panels and balloons.', icon: Icons.Panels },
 ]
 
-/** Pages and a rough wait, because a long book really does take a long time. */
-const LENGTHS: { id: StoryLength; label: string; pages: number; wait: string }[] = [
-  { id: 'short', label: 'Short', pages: 50, wait: 'a few minutes' },
-  { id: 'medium', label: 'Medium', pages: 100, wait: 'around ten minutes' },
-  { id: 'long', label: 'Long', pages: 200, wait: 'up to half an hour' },
+/**
+ * The lengths on offer, with a rough wait — a long book really does take a
+ * long time. The page counts come from the shapes rather than being written
+ * out here, because a graphic novel's lengths are nothing like a novel's: a
+ * comic is twenty-four pages, not two hundred.
+ */
+const LENGTHS: { id: StoryLength; label: string; wait: string; note: Record<BookKind, string> }[] = [
+  { id: 'short', label: 'Short', wait: 'a few minutes', note: { prose: '', graphic: 'one issue' } },
+  { id: 'medium', label: 'Medium', wait: 'around ten minutes', note: { prose: '', graphic: 'a collection' } },
+  { id: 'long', label: 'Long', wait: 'up to half an hour', note: { prose: '', graphic: 'a whole book' } },
 ]
 
 const AUDIENCES: { id: string; label: string }[] = [
@@ -312,8 +317,13 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
                 >
                   {option.label}
                   <span className="mt-0.5 block text-[0.65rem] font-normal opacity-80">
-                    {option.pages} pages
+                    {pagesIn(kind, option.id)} pages
                   </span>
+                  {option.note[kind] && (
+                    <span className="block text-[0.6rem] font-normal opacity-70">
+                      {option.note[kind]}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
@@ -336,7 +346,7 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
 
         {!busy && (
           <p className="text-xs text-ink-faint">
-            {chosen.pages} pages takes {chosen.wait}. Each chapter is kept as it is written, so you
+            {pagesIn(kind, chosen.id)} pages takes {chosen.wait}. Each chapter is kept as it is written, so you
             can stop early and still have a book.
           </p>
         )}

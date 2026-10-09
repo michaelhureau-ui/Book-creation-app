@@ -1,7 +1,7 @@
 import type { Balloon, BalloonKind, Page, Panel } from '@/types'
 import { frameToRect, layoutOf, type PageGeometry } from '@/lib/graphic/layouts'
 
-export type TrimId = 'comic' | 'a4' | 'square'
+export type TrimId = 'comic' | 'trade' | 'manga' | 'a4' | 'square'
 
 export interface Trim {
   id: TrimId
@@ -11,11 +11,28 @@ export interface Trim {
   height: number
 }
 
+/**
+ * The sizes comics are actually printed at, so a finished book can be sent to
+ * a printer rather than only looked at on a screen. The first three are the
+ * shelf standards; the last two are for reading and for art books.
+ */
 export const TRIMS: Trim[] = [
-  { id: 'comic', label: 'Comic (6.625 × 10.25 in)', width: 6.625, height: 10.25 },
+  { id: 'comic', label: 'US comic (6.625 × 10.25 in)', width: 6.625, height: 10.25 },
+  { id: 'trade', label: 'Trade paperback (6.75 × 10.5 in)', width: 6.75, height: 10.5 },
+  { id: 'manga', label: 'Manga (5 × 7.5 in)', width: 5, height: 7.5 },
   { id: 'a4', label: 'A4 (8.27 × 11.69 in)', width: 8.27, height: 11.69 },
   { id: 'square', label: 'Square (8 × 8 in)', width: 8, height: 8 },
 ]
+
+/**
+ * What a printer trims away, in inches. Artwork is printed oversized and cut
+ * back to the trim line, so a page that is meant to have ink to its very edge
+ * has to carry an eighth of an inch of it beyond the cut.
+ */
+export const BLEED_IN = 0.125
+
+/** Room outside the bleed for the crop marks that show where to cut. */
+export const MARKS_IN = 0.125
 
 export function trimOf(id: TrimId): Trim {
   return TRIMS.find((t) => t.id === id) ?? TRIMS[0]

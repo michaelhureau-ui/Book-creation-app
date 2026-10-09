@@ -50,9 +50,13 @@ export const SHAPES: Record<StoryKind, Record<StoryLength, { chapters: number; p
     long: { chapters: 40, pages: 5 },
   },
   graphic: {
-    short: { chapters: 10, pages: 5 },
-    medium: { chapters: 20, pages: 5 },
-    long: { chapters: 40, pages: 5 },
+    // A graphic novel is not a novel with pictures: a single issue runs about
+    // twenty-four pages, a collection sixty-odd, and a bookshelf graphic novel
+    // around a hundred and twenty. Asking for two hundred made something no
+    // shop would stock and no reader would recognise.
+    short: { chapters: 6, pages: 4 },
+    medium: { chapters: 16, pages: 4 },
+    long: { chapters: 24, pages: 5 },
   },
 }
 
