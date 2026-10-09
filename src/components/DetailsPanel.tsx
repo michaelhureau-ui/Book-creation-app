@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { Field, Modal } from '@/components/ui'
 import { BookCover } from '@/components/BookCover'
+import { CoverArtControls } from '@/components/CoverArtControls'
 import { useStore } from '@/lib/store'
 import { LAYOUTS, PALETTES } from '@/lib/cover'
 import { bookStats, formatCount, formatReadingTime } from '@/lib/stats'
@@ -88,6 +89,8 @@ export function DetailsPanel({ book, onClose }: { book: Book; onClose: () => voi
               ))}
             </div>
           </div>
+
+          <CoverArtControls book={book} />
 
           <dl className="mt-5 space-y-1.5 border-t border-rule pt-4 text-sm">
             {[

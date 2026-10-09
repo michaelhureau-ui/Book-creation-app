@@ -4,6 +4,7 @@ import { parseBlocks } from '@/lib/blocks'
 import type { Book, Chapter } from '@/types'
 import { bookAuthor, bookTitle, chapterNumbers } from '@/lib/book'
 import { paletteOf } from '@/lib/cover'
+import { loadAsset } from '@/lib/db'
 
 function esc(text: string): string {
   return text
@@ -84,6 +85,8 @@ blockquote { margin: 1em 2em; font-style: italic; color: #4a4640; }
 pre { background: #f3efe7; padding: .8em; overflow-x: auto; font-size: .85em; }
 hr { border: 0; text-align: center; margin: 1.6em 0; }
 hr:after { content: "* * *"; color: #8b857c; letter-spacing: .4em; }
+.cover { text-align: center; margin: 0; padding: 0; }
+.cover img { max-width: 100%; max-height: 100%; }
 .title-page { text-align: center; margin-top: 25%; }
 .title-page h1 { font-size: 2.4em; margin-bottom: .3em; }
 .title-page .subtitle { font-size: 1.2em; color: #4a4640; text-indent: 0; font-style: italic; }
@@ -121,6 +124,17 @@ export async function buildEpub(book: Book): Promise<Blob> {
   oebps.file('style.css', STYLESHEET)
 
   const palette = paletteOf(book.cover.palette)
+
+  // An e-reader shows the cover image on the shelf and opens on it, so a book
+  // with a picture should carry it as a real EPUB cover rather than only
+  // printing it on a page inside.
+  const art = book.cover.art ? await loadAsset(book.cover.art) : undefined
+  const coverName = art ? `cover.${art.blob.type === 'image/png' ? 'png' : 'jpg'}` : ''
+  if (art) {
+    oebps.file(coverName, art.blob)
+    oebps.file('cover.xhtml', page(title, `<div class="cover"><img src="${coverName}" alt="${esc(title)}"/></div>`, lang))
+  }
+
   const titleBody = `<div class="title-page" style="color:${palette.fg};">
   <h1>${esc(title)}</h1>
   ${book.subtitle.trim() ? `<p class="subtitle">${esc(book.subtitle.trim())}</p>` : ''}
@@ -152,15 +166,18 @@ ${files.map((f) => `    <li><a href="${f.file}">${esc(f.title)}</a></li>`).join(
     <dc:creator>${esc(author)}</dc:creator>
     <dc:language>${esc(lang)}</dc:language>
     ${book.description.trim() ? `<dc:description>${esc(book.description.trim())}</dc:description>` : ''}
+    ${art ? '<meta name="cover" content="cover-image"/>' : ''}
     <meta property="dcterms:modified">${modified}</meta>
   </metadata>
   <manifest>
     <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
     <item id="css" href="style.css" media-type="text/css"/>
     <item id="title" href="title.xhtml" media-type="application/xhtml+xml"/>
+${art ? `    <item id="cover-image" href="${coverName}" media-type="${esc(art.blob.type || 'image/jpeg')}" properties="cover-image"/>\n    <item id="cover" href="cover.xhtml" media-type="application/xhtml+xml"/>` : ''}
 ${files.map((f, i) => `    <item id="ch${i + 1}" href="${f.file}" media-type="application/xhtml+xml"/>`).join('\n')}
   </manifest>
   <spine>
+${art ? '    <itemref idref="cover"/>' : ''}
     <itemref idref="title"/>
     <itemref idref="nav"/>
 ${files.map((_, i) => `    <itemref idref="ch${i + 1}"/>`).join('\n')}

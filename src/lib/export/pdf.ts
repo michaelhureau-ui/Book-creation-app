@@ -225,7 +225,16 @@ function plainRun(text: string, marks: Partial<Run> = {}): Run[] {
  * One rendering pass. `tocNumbers` is null on the first pass (page numbers are
  * not known yet) and filled on the second, which is why the pass runs twice.
  */
-function render(book: Book, opts: PdfOptions, tocNumbers: Map<string, number> | null): { doc: jsPDF; starts: Map<string, number> } {
+/** The jacket picture, ready for jsPDF: a data URL and the shape it came in. */
+export interface CoverArt {
+  dataUrl: string
+  width: number
+  height: number
+}
+
+function render(
+  book: Book, opts: PdfOptions, tocNumbers: Map<string, number> | null, art?: CoverArt,
+): { doc: jsPDF; starts: Map<string, number> } {
   const ts = new Typesetter(opts)
   const doc = ts.doc
   const numbers = chapterNumbers(book.chapters)
@@ -233,6 +242,21 @@ function render(book: Book, opts: PdfOptions, tocNumbers: Map<string, number> | 
   const headers = new Map<number, string>()
   const size = opts.fontSize
   const leading = size * 1.52
+
+  // ── Cover ─────────────────────────────────────────────────────────────────
+  // A picture on the jacket gets a page of its own at the front, filling the
+  // sheet the way a printed cover does. The title page still follows it, since
+  // the picture carries no lettering.
+  if (art) {
+    const scale = Math.max(ts.pageW / art.width, ts.pageH / art.height)
+    const w = art.width * scale
+    const h = art.height * scale
+    doc.addImage(
+      art.dataUrl, (ts.pageW - w) / 2, (ts.pageH - h) / 2, w, h, undefined, 'FAST',
+    )
+    doc.addPage()
+    ts.y = ts.marginTop
+  }
 
   // ── Title page ────────────────────────────────────────────────────────────
   if (opts.includeTitlePage) {
@@ -391,12 +415,12 @@ function drawBlock(ts: Typesetter, block: Block, size: number, leading: number, 
   }
 }
 
-export function buildPdf(book: Book, options: Partial<PdfOptions> = {}): Blob {
+export function buildPdf(book: Book, options: Partial<PdfOptions> = {}, art?: CoverArt): Blob {
   const opts = { ...DEFAULT_PDF_OPTIONS, ...options }
   // Pass 1 discovers where each chapter lands; pass 2 prints those page numbers
   // into the table of contents. Front matter is a fixed length, so the two
   // passes produce identical body pagination.
-  const first = render(book, opts, null)
+  const first = render(book, opts, null, art)
   if (!opts.includeToc || book.chapters.length === 0) return first.doc.output('blob')
-  return render(book, opts, first.starts).doc.output('blob')
+  return render(book, opts, first.starts, art).doc.output('blob')
 }

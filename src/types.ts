@@ -34,6 +34,20 @@ export type CoverLayout = 'classic' | 'band' | 'minimal'
 export interface Cover {
   palette: CoverPalette
   layout: CoverLayout
+  /**
+   * A picture for the jacket, as an asset id — drawn by the app or brought in
+   * from a file. Without one the cover is the palette and the lettering, which
+   * is what every book here started as.
+   */
+  art?: string
+  /** What the picture was asked for, so it can be changed and drawn again. */
+  artBrief?: string
+  /**
+   * How the lettering sits on the picture. 'full' prints the title over the
+   * artwork behind a scrim; 'window' insets the picture and leaves the title
+   * on the plain cover above it, the way most children's books do it.
+   */
+  artFit?: 'full' | 'window'
 }
 
 /** A book is either prose (chapters of text) or a graphic novel (drawn pages). */

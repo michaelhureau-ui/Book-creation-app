@@ -157,6 +157,26 @@ export async function restoreAssets(text: string, bookId: string): Promise<void>
  * Each writer is imported on demand. jsPDF and docx together outweigh the rest
  * of the app, and most sessions are spent writing rather than exporting.
  */
+/**
+ * The jacket picture as something jsPDF can place.
+ *
+ * Read straight out of the database rather than from a screen element, so an
+ * export is the same whether the cover has been looked at or not.
+ */
+async function coverArtFor(book: Book): Promise<{ dataUrl: string; width: number; height: number } | undefined> {
+  if (!book.cover.art) return undefined
+  const { loadAsset } = await import('@/lib/db')
+  const asset = await loadAsset(book.cover.art)
+  if (!asset) return undefined
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = () => reject(new Error('The cover picture could not be read.'))
+    reader.readAsDataURL(asset.blob)
+  })
+  return { dataUrl, width: asset.width || 1024, height: asset.height || 1536 }
+}
+
 export async function exportBook(
   book: Book,
   format: ExportFormat,
@@ -171,7 +191,7 @@ export async function exportBook(
         return
       }
       const { buildPdf } = await import('@/lib/export/pdf')
-      downloadBlob(buildPdf(book, options?.pdf), `${base}.pdf`)
+      downloadBlob(buildPdf(book, options?.pdf, await coverArtFor(book)), `${base}.pdf`)
       return
     }
     case 'cbz': {

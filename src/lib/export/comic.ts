@@ -30,7 +30,36 @@ function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality?: number)
 }
 
 /** The title page is drawn on the same canvas stack, so it matches the pages. */
-function titleCanvas(book: Book, opts: ComicOptions): HTMLCanvasElement {
+/**
+ * The cover picture, drawn to fill the title page with the lettering over it.
+ *
+ * Cover-fitted rather than stretched: a jacket that has been squashed to fit
+ * reads as a mistake before anybody has read the title.
+ */
+function drawCoverArt(
+  ctx: CanvasRenderingContext2D, art: HTMLImageElement, width: number, height: number,
+  palette: { bg: string },
+): void {
+  const scale = Math.max(width / art.naturalWidth, height / art.naturalHeight)
+  const w = art.naturalWidth * scale
+  const h = art.naturalHeight * scale
+  ctx.drawImage(art, (width - w) / 2, (height - h) / 2, w, h)
+
+  // The same scrim the jacket uses on screen, so the printed title is as
+  // readable as the one in the app.
+  const scrim = ctx.createLinearGradient(0, 0, 0, height)
+  scrim.addColorStop(0, `${palette.bg}f2`)
+  scrim.addColorStop(0.22, `${palette.bg}b3`)
+  scrim.addColorStop(0.45, `${palette.bg}26`)
+  scrim.addColorStop(0.78, `${palette.bg}59`)
+  scrim.addColorStop(1, `${palette.bg}ef`)
+  ctx.fillStyle = scrim
+  ctx.fillRect(0, 0, width, height)
+}
+
+function titleCanvas(
+  book: Book, opts: ComicOptions, art?: HTMLImageElement,
+): HTMLCanvasElement {
   const geo = pageGeometry(renderOptions(opts))
   const canvas = document.createElement('canvas')
   canvas.width = geo.width
@@ -42,6 +71,7 @@ function titleCanvas(book: Book, opts: ComicOptions): HTMLCanvasElement {
 
   ctx.fillStyle = palette.bg
   ctx.fillRect(0, 0, geo.width, geo.height)
+  if (art) drawCoverArt(ctx, art, geo.width, geo.height, palette)
 
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
@@ -78,10 +108,16 @@ function titleCanvas(book: Book, opts: ComicOptions): HTMLCanvasElement {
 }
 
 async function renderAll(book: Book, opts: ComicOptions): Promise<HTMLCanvasElement[]> {
-  const images = await loadImages(assetIdsOf(book.pages))
+  // The cover picture is loaded alongside the panels, so the title page can be
+  // the jacket rather than a plain colour.
+  const wanted = assetIdsOf(book.pages)
+  if (book.cover.art) wanted.push(book.cover.art)
+  const images = await loadImages(wanted)
   const render = renderOptions(opts)
   const canvases: HTMLCanvasElement[] = []
-  if (opts.includeTitlePage) canvases.push(titleCanvas(book, opts))
+  if (opts.includeTitlePage) {
+    canvases.push(titleCanvas(book, opts, book.cover.art ? images.get(book.cover.art) : undefined))
+  }
   for (const page of book.pages) canvases.push(renderPage(page, images, render))
   return canvases
 }
