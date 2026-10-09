@@ -48,3 +48,16 @@ export function pagesIn(kind: 'prose' | 'graphic', length: 'short' | 'medium' | 
 
 /** How many chapters one planning call asks for; mirrors the endpoint. */
 export const OUTLINE_BATCH = 10
+
+/**
+ * Whether a book looks like it stopped part-way through being written.
+ *
+ * Only ever true for a book the app was writing: one somebody is typing
+ * themselves is never unfinished, it is simply as long as they have got.
+ */
+export function stoppedShort(book: {
+  chapters: unknown[]
+  writing?: { wanted: number }
+}): boolean {
+  return Boolean(book.writing) && book.chapters.length < (book.writing?.wanted ?? 0)
+}

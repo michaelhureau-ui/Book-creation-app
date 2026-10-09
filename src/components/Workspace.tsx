@@ -5,6 +5,7 @@ import { Editor } from '@/components/Editor'
 import { ChapterList } from '@/components/ChapterList'
 import { PageStrip } from '@/components/PageStrip'
 import { DetailsPanel } from '@/components/DetailsPanel'
+import { ContinueDialog } from '@/components/ContinueDialog'
 import { Preview } from '@/components/Preview'
 import { ExportDialog } from '@/components/ExportDialog'
 import { PrintView } from '@/components/PrintView'
@@ -46,7 +47,9 @@ export function Workspace() {
   const updateProsePage = useStore((s) => s.updateProsePage)
   const addChapter = useStore((s) => s.addChapter)
 
-  const [panel, setPanel] = useState<'details' | 'preview' | 'export' | 'print' | 'movie' | null>(null)
+  const [panel, setPanel] = useState<
+    'details' | 'preview' | 'export' | 'print' | 'movie' | 'carryOn' | null
+  >(null)
   // The comic page size is a view/export setting rather than part of the book,
   // so it lives here and is handed to both the editor and the export dialog.
   const [trim, setTrim] = useState<TrimId>('comic')
@@ -121,6 +124,13 @@ export function Workspace() {
           <button className="btn btn-outline" onClick={() => setPanel('print')} title="Print (⌘P)">
             <Icons.Printer /> <span className="hidden md:inline">Print</span>
           </button>
+          <button
+            className="btn btn-outline"
+            onClick={() => setPanel('carryOn')}
+            title="Write more of this book"
+          >
+            <Icons.Sparkle /> <span className="hidden md:inline">Write more</span>
+          </button>
           <button className="btn btn-outline" onClick={() => setPanel('movie')} title="Make a movie">
             <Icons.Film /> <span className="hidden md:inline">Movie</span>
           </button>
@@ -194,6 +204,7 @@ export function Workspace() {
       )}
 
       {panel === 'details' && <DetailsPanel book={book} onClose={() => setPanel(null)} />}
+      {panel === 'carryOn' && <ContinueDialog book={book} onClose={() => setPanel(null)} />}
       {panel === 'preview' && <Preview book={book} trim={trim} onClose={() => setPanel(null)} />}
       {panel === 'export' && <ExportDialog book={book} trim={trim} onClose={() => setPanel(null)} />}
       {panel === 'print' && <PrintView book={book} trim={trim} onClose={() => setPanel(null)} />}

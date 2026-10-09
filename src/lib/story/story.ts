@@ -213,3 +213,26 @@ export function startBook(outline: Outline, kind: StoryKind): Book {
   book.pages = []
   return book
 }
+
+/**
+ * The plan for a book that was written before plans were kept with books —
+ * or by anybody who wrote it themselves.
+ *
+ * Reconstructed from what is on the page: each chapter's title, and its opening
+ * as a summary. Rougher than the original, but enough for the model to see
+ * where the story has got to and carry it on from there, which is the whole
+ * job.
+ */
+export function planFromWritten(book: Book): OutlineChapter[] {
+  return book.chapters.map((chapter, i) => ({
+    title: chapter.title || `Chapter ${i + 1}`,
+    summary: summaryOf(chapter),
+  }))
+}
+
+/** A chapter's opening words, flattened out of its HTML. */
+function summaryOf(chapter: Chapter): string {
+  const html = (chapter.pages ?? []).map((p) => p.content).join(' ') || chapter.content || ''
+  const words = html.replace(/<[^>]+>/g, ' ').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim()
+  return words.slice(0, 400)
+}

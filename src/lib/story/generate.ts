@@ -3,8 +3,8 @@ import { generatePanelArt, GenerationFailed } from '@/lib/graphic/generate'
 import { panelAspect } from '@/components/graphic/geometry'
 import type { ArtStyle } from '@/lib/graphic/image-prompt'
 import {
-  buildGraphicPage, buildProseChapter, readGraphicPages, readOutline, readProsePages,
-  startBook, type Outline, type StoryKind, type StoryLength,
+  buildGraphicPage, buildProseChapter, planFromWritten, readGraphicPages, readOutline,
+  readProsePages, startBook, type Outline, type StoryKind, type StoryLength,
 } from '@/lib/story/story'
 import { chaptersIn, OUTLINE_BATCH, pagesIn, SHAPES } from '@/lib/story/limits'
 
@@ -117,42 +117,18 @@ export async function writeStory(
 
   const outline = await planBook(idea, kind, length, audience, show, retell, hooks, signal)
 
-  const total = outline.chapters.length
   const wanted = chaptersIn(kind, length)
-  const bookId = await hooks.onStart(startBook(outline, kind))
-  let written = 0
-
-  for (let i = 0; i < total; i++) {
-    if (signal?.aborted) break
-    const planned = outline.chapters[i]
-    hooks.onProgress({ done: i, total, label: `Writing “${planned.title}” — ${i + 1} of ${total}…` })
-
-    let reply: Record<string, unknown>
-    try {
-      reply = await askWithRetries(
-        { stage: 'chapter', idea, kind, length, audience, show, retell, outline, index: i }, signal)
-    } catch (err) {
-      if (written === 0 || signal?.aborted) throw err
-      // The chapters so far are saved, but stopping quietly is how a book
-      // asked for at two hundred pages came back at five with nothing said.
-      throw new StoryFailed(
-        err instanceof StoryFailed ? err.code : 'provider_error',
-        `The book stopped at chapter ${i + 1} of ${total}. `
-        + (err instanceof Error ? err.message : 'The story service failed.'),
-      )
-    }
-
-    if (kind === 'graphic') {
-      const chapter = buildProseChapter(planned.title, [''])
-      const pages = readGraphicPages(reply.chapter).map((page) => buildGraphicPage(page, chapter.id))
-      hooks.onChapter(bookId, chapter, pages)
-    } else {
-      hooks.onChapter(bookId, buildProseChapter(planned.title, readProsePages(reply.chapter)), [])
-    }
-    written++
+  const book = startBook(outline, kind)
+  book.writing = {
+    idea, show, retell, audience, length, wanted,
+    chapters: outline.chapters,
+    cast: outline.cast,
   }
+  const bookId = await hooks.onStart(book)
 
-  hooks.onProgress({ done: written, total, label: 'Finishing up…' })
+  const written = await writeChapters(
+    { idea, kind, length, audience, show, retell, outline }, bookId, 0, hooks, signal)
+  const total = outline.chapters.length
   // A plan shorter than the book asked for makes a shorter book, and saying
   // nothing about it leaves someone counting pages and wondering.
   if (written > 0 && total < wanted) {
@@ -168,6 +144,121 @@ export async function writeStory(
   return { bookId, chapters: written }
 }
 
+interface Brief {
+  idea: string
+  kind: StoryKind
+  length: StoryLength
+  audience: string
+  show: string
+  retell: boolean
+  outline: Outline
+}
+
+/**
+ * Write the chapters of a plan, from `from` onwards, saving each as it lands.
+ *
+ * Shared by writing a book and carrying one on, because they are the same job
+ * started at a different place.
+ */
+async function writeChapters(
+  brief: Brief, bookId: string, from: number, hooks: StoryHooks, signal?: AbortSignal,
+): Promise<number> {
+  const { idea, kind, length, audience, show, retell, outline } = brief
+  const total = outline.chapters.length
+  let written = 0
+
+  for (let i = from; i < total; i++) {
+    if (signal?.aborted) break
+    const planned = outline.chapters[i]
+    hooks.onProgress({ done: i, total, label: `Writing “${planned.title}” — ${i + 1} of ${total}…` })
+
+    let reply: Record<string, unknown>
+    try {
+      reply = await askWithRetries(
+        { stage: 'chapter', idea, kind, length, audience, show, retell, outline, index: i }, signal)
+    } catch (err) {
+      if (written === 0 || signal?.aborted) throw err
+      // The chapters so far are saved, but stopping quietly is how a book
+      // asked for at two hundred pages came back at five with nothing said.
+      throw new StoryFailed(
+        err instanceof StoryFailed ? err.code : 'provider_error',
+        `The book stopped at chapter ${i + 1} of ${total}. `
+        + (err instanceof Error ? err.message : 'The story service failed.')
+        + ' Open it and press “Carry on writing” to pick it up from there.',
+      )
+    }
+
+    if (kind === 'graphic') {
+      const chapter = buildProseChapter(planned.title, [''])
+      const pages = readGraphicPages(reply.chapter).map((page) => buildGraphicPage(page, chapter.id))
+      hooks.onChapter(bookId, chapter, pages)
+    } else {
+      hooks.onChapter(bookId, buildProseChapter(planned.title, readProsePages(reply.chapter)), [])
+    }
+    written++
+  }
+
+  hooks.onProgress({ done: written, total, label: 'Finishing up…' })
+  return written
+}
+
+/**
+ * Pick a half-written book back up and write the rest of it.
+ *
+ * A long book is dozens of calls to a service that sometimes stops answering,
+ * so stopping part-way is ordinary rather than exceptional — and starting over
+ * means losing chapters that were perfectly good. This carries on from the
+ * chapter after the last one written.
+ *
+ * A book written before plans were kept, or one somebody wrote themselves, has
+ * no plan to carry on from; its chapters are read back into a rough one so it
+ * can be continued all the same.
+ */
+export async function continueStory(
+  book: Book,
+  hooks: StoryHooks,
+  signal?: AbortSignal,
+  /** Overrides for a book with nothing of its own to go on. */
+  fallback?: { idea?: string; length?: StoryLength; audience?: string },
+): Promise<{ bookId: string; chapters: number }> {
+  const kind: StoryKind = book.kind
+  const plan = book.writing
+  const length = fallback?.length ?? plan?.length ?? 'medium'
+  const idea = (fallback?.idea ?? plan?.idea ?? book.description ?? '').trim() || book.title
+  const audience = fallback?.audience ?? plan?.audience ?? 'middle'
+  const wanted = Math.max(chaptersIn(kind, length), book.chapters.length)
+  const done = book.chapters.length
+
+  if (done >= wanted) {
+    throw new StoryFailed('empty_idea', 'This book is already as long as it was meant to be.')
+  }
+
+  // What has been written is the plan up to here, whether it was kept or has to
+  // be read back off the page.
+  const chapters = plan?.chapters?.length
+    ? plan.chapters.slice()
+    : planFromWritten(book)
+
+  const outline: Outline = {
+    title: book.title,
+    subtitle: book.subtitle,
+    cast: plan?.cast ?? [],
+    chapters,
+  }
+
+  // The plan may stop where the writing stopped; the rest is asked for now.
+  const extended = await extendPlan(
+    { idea, kind, length, audience, show: plan?.show ?? '', retell: plan?.retell ?? false, outline },
+    wanted, hooks, signal,
+  )
+
+  const written = await writeChapters(
+    { idea, kind, length, audience, show: plan?.show ?? '', retell: plan?.retell ?? false, outline: extended },
+    book.id, done, hooks, signal,
+  )
+  return { bookId: book.id, chapters: written }
+}
+
 /**
  * Plan the book a few chapters at a time.
  *
@@ -181,12 +272,26 @@ async function planBook(
   idea: string, kind: StoryKind, length: StoryLength, audience: string,
   show: string, retell: boolean, hooks: StoryHooks, signal?: AbortSignal,
 ): Promise<Outline> {
-  const wanted = chaptersIn(kind, length)
   hooks.onProgress({ done: 0, total: 1, label: 'Planning the book…' })
-
   const first = readOutline(
     (await askWithRetries({ stage: 'outline', idea, kind, length, audience, show, retell }, signal)).outline)
-  const chapters = [...first.chapters]
+  return extendPlan(
+    { idea, kind, length, audience, show, retell, outline: first },
+    chaptersIn(kind, length), hooks, signal,
+  )
+}
+
+/**
+ * Keep asking for the next few chapters until the plan is long enough.
+ *
+ * The same walk serves a new book and one being carried on: the only
+ * difference is how many chapters it starts with.
+ */
+async function extendPlan(
+  brief: Brief, wanted: number, hooks: StoryHooks, signal?: AbortSignal,
+): Promise<Outline> {
+  const { idea, kind, length, audience, show, retell, outline } = brief
+  const chapters = [...outline.chapters]
 
   while (chapters.length < wanted) {
     if (signal?.aborted) break
@@ -200,7 +305,7 @@ async function planBook(
     try {
       more = readOutline((await askWithRetries({
         stage: 'outline', idea, kind, length, audience, show, retell,
-        sofar: chapters, title: first.title,
+        sofar: chapters, title: outline.title,
       }, signal)).outline)
     } catch {
       // A plan that stops short still makes a book, and the length check at
@@ -215,7 +320,7 @@ async function planBook(
     chapters.push(...added.slice(0, wanted - chapters.length))
   }
 
-  return { ...first, chapters }
+  return { ...outline, chapters }
 }
 
 /** Failures worth trying again: the service was busy, not the request wrong. */

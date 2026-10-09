@@ -50,6 +50,28 @@ export interface Cover {
   artFit?: 'full' | 'window'
 }
 
+/**
+ * What the app needs to pick a half-written book back up.
+ *
+ * A long book is forty calls to a service that sometimes stops answering, so
+ * stopping part-way is a normal thing to happen, not an exceptional one. Keeping
+ * the plan and the brief with the book is what turns that from starting over
+ * into carrying on.
+ */
+export interface WritingPlan {
+  idea: string
+  show: string
+  retell: boolean
+  audience: string
+  length: 'short' | 'medium' | 'long'
+  /** The chapters the book is being written from, in order. */
+  chapters: { title: string; summary: string }[]
+  /** Who is in it, so a picture drawn in chapter twenty matches chapter one. */
+  cast: { name: string; look: string }[]
+  /** How many chapters the finished book should have. */
+  wanted: number
+}
+
 /** A book is either prose (chapters of text) or a graphic novel (drawn pages). */
 export type BookKind = 'prose' | 'graphic'
 
@@ -116,6 +138,8 @@ export interface Book {
   description: string
   language: string
   cover: Cover
+  /** Present while a book written by the app is unfinished, and after. */
+  writing?: WritingPlan
   /** Prose bodies. A graphic novel uses these too, as headings over its pages. */
   chapters: Chapter[]
   /** Used when kind is 'graphic'. */

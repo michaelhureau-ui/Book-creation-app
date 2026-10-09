@@ -4,6 +4,8 @@ import { Icons } from '@/components/Icons'
 import { BookCover } from '@/components/BookCover'
 import { ConfirmDialog, EmptyState, Modal } from '@/components/ui'
 import { StoryDialog } from '@/components/StoryDialog'
+import { ContinueDialog } from '@/components/ContinueDialog'
+import { stoppedShort } from '@/lib/story/limits'
 import { useStore } from '@/lib/store'
 import { bookStats, formatCount, readingSummary } from '@/lib/stats'
 import { bookFromJson, restoreAssets } from '@/lib/export'
@@ -89,10 +91,13 @@ function NewBookDialog({ onClose }: { onClose: () => void }) {
   )
 }
 
-function BookCard({ book, onDelete }: { book: Book; onDelete: () => void }) {
+function BookCard(
+  { book, onDelete, onCarryOn }: { book: Book; onDelete: () => void; onCarryOn: () => void },
+) {
   const openBook = useStore((s) => s.openBook)
   const copyBook = useStore((s) => s.copyBook)
   const stats = useMemo(() => bookStats(book), [book])
+  const unfinished = stoppedShort(book)
 
   return (
     <div className="group relative">
@@ -123,6 +128,15 @@ function BookCard({ book, onDelete }: { book: Book; onDelete: () => void }) {
           <p className="text-xs text-ink-faint">Edited {relativeDate(book.updatedAt)}</p>
         </div>
       </button>
+
+      {unfinished && (
+        <button
+          className="mt-2 w-full rounded-md border border-accent/60 bg-accent-soft/50 px-2 py-1 text-xs font-semibold text-accent-deep hover:bg-accent-soft"
+          onClick={onCarryOn}
+        >
+          Carry on writing — {book.chapters.length} of {book.writing?.wanted} chapters
+        </button>
+      )}
 
       <div className="absolute right-1.5 top-1.5 flex gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
         <button
@@ -155,6 +169,7 @@ export function Library() {
 
   const [creating, setCreating] = useState(false)
   const [writing, setWriting] = useState(false)
+  const [carryingOn, setCarryingOn] = useState<Book | null>(null)
   const [query, setQuery] = useState('')
   const [pendingDelete, setPendingDelete] = useState<Book | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
@@ -281,13 +296,24 @@ export function Library() {
       ) : (
         <div className="grid grid-cols-2 gap-x-6 gap-y-8 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
           {shown.map((book) => (
-            <BookCard key={book.id} book={book} onDelete={() => setPendingDelete(book)} />
+            <BookCard
+              key={book.id}
+              book={book}
+              onDelete={() => setPendingDelete(book)}
+              onCarryOn={() => setCarryingOn(book)}
+            />
           ))}
         </div>
       )}
 
       {creating && <NewBookDialog onClose={() => setCreating(false)} />}
       {writing && <StoryDialog onClose={() => setWriting(false)} />}
+      {carryingOn && (
+        <ContinueDialog
+          book={books.find((b) => b.id === carryingOn.id) ?? carryingOn}
+          onClose={() => setCarryingOn(null)}
+        />
+      )}
       {pendingDelete && (
         <ConfirmDialog
           title={`Delete “${pendingDelete.title || 'Untitled book'}”?`}
