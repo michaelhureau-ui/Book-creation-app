@@ -1,4 +1,5 @@
 import type { Book, BookKind, Chapter, ChapterKind, Page, ProsePage } from '@/types'
+import { aimBalloons } from '@/lib/graphic/lettering'
 
 export function newId(): string {
   return (
@@ -106,6 +107,10 @@ export function normalizeBook(book: Book): Book {
   const pages = groupPages(chapters, book.pages.map((page) => ({
     ...page,
     chapterId: typeof page.chapterId === 'string' ? page.chapterId : null,
+    // Opening a book is when its lettering is tidied: every tail aimed at
+    // whoever is speaking, and the sound effects moved out of the picture.
+    // Balloons placed by hand are left alone.
+    panels: page.panels.map((panel) => ({ ...panel, balloons: aimBalloons(panel.balloons) })),
   })))
   return { ...book, chapters, pages }
 }

@@ -90,8 +90,11 @@ export function PageCanvas({ book, page, trim }: { book: Book; page: Page; trim:
     const move = (e: PointerEvent): void => {
       const point = toPanelFraction(e, index)
       if (!point) return
+      // Dragged by hand, so tidying the lettering leaves it alone from now on.
       updateBalloon(book.id, page.id, panelId, balloonId,
-        handle === 'body' ? { x: point.x, y: point.y } : { tailX: point.x, tailY: point.y })
+        handle === 'body'
+          ? { x: point.x, y: point.y, placed: true }
+          : { tailX: point.x, tailY: point.y, placed: true })
     }
     const up = (): void => {
       window.removeEventListener('pointermove', move)

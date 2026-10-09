@@ -49,7 +49,9 @@ describe('a balloon points at whoever is talking', () => {
     const panel: Rect = { x: 0, y: 0, w: 300, h: 460 }
     for (const kind of ['caption', 'sfx'] as const) {
       const [placed] = placeBalloons([written(kind, 'Later…', 'left')])
-      expect(placed.tailX).toBe(0.5)
+      // No tail means the tail sits on the balloon, wherever the balloon is —
+      // a sound effect is down in a corner now, out of the artwork.
+      expect(placed.tailX).toBe(placed.x)
       expect(placed.tailY).toBe(placed.y)
     }
     const [offstage] = placeBalloons([written('speech', 'A voice.', 'off')])

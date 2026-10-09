@@ -83,6 +83,18 @@ export interface Balloon {
   text: string
   /** Who says it, where that is known — printed in the exported script. */
   speaker?: string
+  /**
+   * Which side of the panel the speaker stands on, so the tail can be aimed at
+   * them again later — when the book is reopened, or after the lettering has
+   * been tidied up.
+   */
+  side?: 'left' | 'middle' | 'right' | 'off'
+  /**
+   * Set once somebody has dragged this balloon where they want it. Tidying
+   * never moves one of these: a hand-placed balloon is a decision, and the app
+   * does not get to overrule it.
+   */
+  placed?: boolean
   /** Position and width as a fraction (0–1) of the panel it sits in. */
   x: number
   y: number

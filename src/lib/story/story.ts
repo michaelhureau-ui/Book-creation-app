@@ -3,6 +3,7 @@ import type {
 } from '@/types'
 import { createBook, createChapter, createProsePage, newId } from '@/lib/book'
 import { createBalloon, createPanel } from '@/lib/graphic/pages'
+import { aimBalloons, type SpeakerSide } from '@/lib/graphic/lettering'
 import { LAYOUTS, panelCount } from '@/lib/graphic/layouts'
 
 export type StoryKind = BookKind
@@ -93,16 +94,11 @@ export function readProsePages(raw: unknown): string[] {
 const BALLOON_KINDS: BalloonKind[] = ['speech', 'thought', 'caption', 'shout', 'sfx']
 
 /** Where in the panel the speaker is standing. */
-export type SpeakerSide = 'left' | 'middle' | 'right' | 'off'
+export type { SpeakerSide }
 
 const SIDES: SpeakerSide[] = ['left', 'middle', 'right', 'off']
 
 /** What the tail reaches for: a character's head and shoulders, not their feet. */
-const TAIL_X: Record<Exclude<SpeakerSide, 'off'>, number> = { left: 0.18, middle: 0.5, right: 0.82 }
-const TAIL_Y = 0.68
-
-/** The balloon leans toward its speaker without hanging off the panel. */
-const BODY_X: Record<Exclude<SpeakerSide, 'off'>, number> = { left: 0.3, middle: 0.5, right: 0.7 }
 
 /** The nearest layout to the number of panels written, never fewer frames. */
 export function layoutForPanels(count: number): PageLayoutId {
@@ -175,18 +171,14 @@ export function readGraphicPages(raw: unknown): WrittenPage[] {
  * centre, where the renderer declines to draw one.
  */
 export function placeBalloons(written: WrittenBalloon[]): Balloon[] {
-  return written.map(({ balloon, from }, i) => {
-    const y = Math.min(0.62, 0.16 + i * 0.19)
-    // A caption or a sound effect has no speaker whatever the story claimed,
-    // so the rule is enforced here as well as read there: this is the function
-    // that decides tails, and it should not be able to draw a wrong one.
-    const aimed = balloon.kind === 'caption' || balloon.kind === 'sfx' ? 'off' : from
-    if (aimed === 'off') {
-      return { ...balloon, x: 0.5, y, tailX: 0.5, tailY: y }
-    }
-    return { ...balloon, x: BODY_X[aimed], y, tailX: TAIL_X[aimed], tailY: TAIL_Y }
-  })
+  return aimBalloons(written.map(({ balloon, from }) => ({
+    ...balloon,
+    // Remembering the side is what lets the tail be aimed again later, when
+    // the book is reopened or the lettering is tidied.
+    side: balloon.kind === 'caption' || balloon.kind === 'sfx' ? 'off' : from,
+  })))
 }
+
 
 export function buildGraphicPage(page: WrittenPage, chapterId: string): Page {
   const frames = panelCount(page.layout)
