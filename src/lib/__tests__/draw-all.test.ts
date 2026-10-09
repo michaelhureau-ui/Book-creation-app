@@ -81,11 +81,11 @@ describe('drawing the pictures for a book that already exists', () => {
 
 describe('a picture the service will not draw', () => {
   it('counts it and keeps what it said, instead of skipping it in silence', async () => {
-    let calls = 0
-    vi.stubGlobal('fetch', vi.fn(async () => {
-      calls++
-      // The second panel is refused; the rest are fine.
-      if (calls === 2) {
+    const book = comic(2, 0)
+    // One panel is refused whatever it says, so the nameless retry fails too.
+    book.pages[1].panels[0].note = 'A thing it will never draw.'
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: { body?: string }) => {
+      if (/never draw/.test(JSON.parse(init?.body ?? '{}').subject ?? '')) {
         return new Response(JSON.stringify({
           error: { code: 'rejected', message: 'The image service would not draw that.' },
         }), { status: 502 })
@@ -93,7 +93,7 @@ describe('a picture the service will not draw', () => {
       return new Response(JSON.stringify({ image: 'aGk=', mime: 'image/png' }), { status: 200 })
     }))
 
-    const result = await drawPanels(comic(2, 0), 'storybook', () => {}, () => {})
+    const result = await drawPanels(book, 'storybook', () => {}, () => {})
     expect(result.drawn).toBe(3)
     expect(result.failed).toBe(1)
     expect(result.reason).toContain('would not draw')
@@ -125,5 +125,46 @@ describe('a picture the service will not draw', () => {
     const result = await drawPanels(comic(3, 0), 'storybook', () => {}, () => {})
     expect(result.drawn).toBe(0)
     expect(result.stopped).toContain('out of credit')
+  })
+})
+
+describe('a panel refused because of who is in it', () => {
+  it('tries again with the names taken out before giving up', async () => {
+    const asked: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: { body?: string }) => {
+      const body = JSON.parse(init?.body ?? '{}')
+      asked.push(body.subject)
+      // Refused while a name is in it, drawn once it is not — which is exactly
+      // how the real service behaves.
+      if (/Spider-Man/.test(body.subject)) {
+        return new Response(JSON.stringify({
+          error: { code: 'rejected', message: 'The picture service would not draw that — finish: PROHIBITED_CONTENT' },
+        }), { status: 502 })
+      }
+      return new Response(JSON.stringify({ image: 'aGk=', mime: 'image/png' }), { status: 200 })
+    }))
+
+    const book = comic(1, 1)
+    book.pages[0].panels[1].note = 'Spider-Man swings over the rooftops.'
+    const result = await drawPanels(book, 'storybook', () => {}, () => {})
+
+    expect(result.drawn).toBe(1)
+    expect(result.failed).toBe(0)
+    expect(asked).toHaveLength(2)
+    expect(asked[1]).not.toContain('Spider-Man')
+    expect(asked[1]).toMatch(/not resembling any existing/i)
+  })
+
+  it('reports it when even the nameless version is refused', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      error: { code: 'rejected', message: 'would not draw that — finish: PROHIBITED_CONTENT' },
+    }), { status: 502 })))
+
+    const book = comic(1, 1)
+    book.pages[0].panels[1].note = 'Something it will never draw.'
+    const result = await drawPanels(book, 'storybook', () => {}, () => {})
+    expect(result.drawn).toBe(0)
+    expect(result.failed).toBe(1)
+    expect(result.reason).toContain('PROHIBITED_CONTENT')
   })
 })

@@ -1,6 +1,7 @@
 import type { Book, Chapter, Page } from '@/types'
 import { generatePanelArt, GenerationFailed } from '@/lib/graphic/generate'
 import { panelAspect } from '@/components/graphic/geometry'
+import { brief, withoutNames } from '@/lib/graphic/brief'
 import type { ArtStyle } from '@/lib/graphic/image-prompt'
 import {
   buildGraphicPage, buildProseChapter, planFromWritten, readGraphicPages, readOutline,
@@ -424,10 +425,19 @@ export async function drawPanels(
   signal?: AbortSignal,
 ): Promise<DrawingProgress> {
   // The aspect is the panel's own frame, so artwork lands in it barely cropped.
+  // Names are swapped for descriptions before anything is sent: a picture
+  // service cannot draw "Rell", and refuses outright to draw anyone it does
+  // recognise.
+  const cast = book.writing?.cast ?? []
   const jobs = book.pages.flatMap((page) =>
     page.panels.flatMap((panel, panelIndex) =>
       !panel.assetId && (panel.note ?? '').trim()
-        ? [{ page, panel, aspect: panelAspect(page, panelIndex, 'comic') }]
+        ? [{
+          page,
+          panel,
+          note: brief(panel.note ?? '', cast),
+          aspect: panelAspect(page, panelIndex, 'comic'),
+        }]
         : []))
 
   let drawn = 0
@@ -474,17 +484,31 @@ const PASSING_ART = new Set(['network', 'provider_error', 'stale_build'])
  */
 async function drawOnePanel(
   bookId: string,
-  job: { panel: { note?: string }; aspect: number },
+  job: { note: string; aspect: number },
   style: ArtStyle,
   signal?: AbortSignal,
   waits = [1200, 3500],
 ): Promise<string> {
   for (let attempt = 0; ; attempt++) {
     try {
-      return await generatePanelArt(bookId, job.panel.note ?? '', style, job.aspect, signal)
+      return await generatePanelArt(bookId, job.note, style, job.aspect, signal)
     } catch (err) {
-      const passing = err instanceof GenerationFailed && PASSING_ART.has(err.code)
-      if (!passing || attempt >= waits.length || signal?.aborted) throw err
+      const failure = err instanceof GenerationFailed ? err : null
+      if (!failure || signal?.aborted) throw err
+
+      // A refused brief will be refused again however long we wait — but a
+      // refusal is usually about a name in it, so it is worth one go with the
+      // names taken out before the panel is given up on.
+      if (failure.code === 'rejected') {
+        if (attempt > 0) throw err
+        try {
+          return await generatePanelArt(bookId, withoutNames(job.note), style, job.aspect, signal)
+        } catch {
+          throw err
+        }
+      }
+
+      if (!PASSING_ART.has(failure.code) || attempt >= waits.length) throw err
       await new Promise((resolve) => setTimeout(resolve, waits[attempt]))
     }
   }

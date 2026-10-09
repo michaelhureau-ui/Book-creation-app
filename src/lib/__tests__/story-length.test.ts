@@ -115,10 +115,10 @@ describe('drawing the panels of a written comic', () => {
 
   it('skips one picture the model would not draw and carries on', async () => {
     const book = comic(['one', 'two', 'three'])
-    let calls = 0
-    vi.stubGlobal('fetch', vi.fn(async () => {
-      calls++
-      if (calls === 2) {
+    // The second panel is refused however it is worded, so the nameless retry
+    // does not rescue it either — what is under test is carrying on past it.
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init?: { body?: string }) => {
+      if (/two/.test(JSON.parse(init?.body ?? '{}').subject ?? '')) {
         return {
           ok: false, status: 400,
           json: async () => ({ error: { code: 'rejected', message: 'Would not draw that.' } }),
@@ -127,7 +127,7 @@ describe('drawing the panels of a written comic', () => {
       return { ok: true, status: 200, json: async () => ({ image: 'aGk=', mime: 'image/png' }) } as unknown as Response
     }))
     const result = await drawPanels(book, 'color', () => {}, () => {})
-    expect(result).toMatchObject({ drawn: 2, total: 3 })
+    expect(result).toMatchObject({ drawn: 2, total: 3, failed: 1 })
     expect(result.stopped).toBeUndefined()
   })
 
