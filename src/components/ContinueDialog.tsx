@@ -3,9 +3,10 @@ import clsx from 'clsx'
 import { Modal } from '@/components/ui'
 import { useStore } from '@/lib/store'
 import {
-  checkStoryService, continueStory, NOT_CONFIGURED_HELP, QUOTA_HELP, STALE_BUILD_HELP, StoryFailed,
-  type ServiceCheck, type StoryProgress,
+  checkStoryService, continueStory, drawPanels, NOT_CONFIGURED_HELP, QUOTA_HELP, STALE_BUILD_HELP,
+  StoryFailed, type DrawingProgress, type ServiceCheck, type StoryProgress,
 } from '@/lib/story/generate'
+import { STYLES, type ArtStyle } from '@/lib/graphic/image-prompt'
 import { chaptersIn, pagesIn } from '@/lib/story/limits'
 import type { Book } from '@/types'
 import type { StoryLength } from '@/lib/story/story'
@@ -26,6 +27,7 @@ const LENGTHS: { id: StoryLength; label: string }[] = [
  */
 export function ContinueDialog({ book, onClose }: { book: Book; onClose: () => void }) {
   const addStoryChapter = useStore((s) => s.addStoryChapter)
+  const setPanelArt = useStore((s) => s.setPanelArt)
   const plan = book.writing
 
   const [length, setLength] = useState<StoryLength>(plan?.length ?? 'medium')
@@ -35,6 +37,9 @@ export function ContinueDialog({ book, onClose }: { book: Book; onClose: () => v
   const [check, setCheck] = useState<ServiceCheck | 'running' | { failed: string } | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const [added, setAdded] = useState(0)
+  const [draw, setDraw] = useState(false)
+  const [style, setStyle] = useState<ArtStyle>('storybook')
+  const [drawing, setDrawing] = useState<DrawingProgress | null>(null)
 
   useEffect(() => () => abortRef.current?.abort(), [])
 
@@ -59,6 +64,26 @@ export function ContinueDialog({ book, onClose }: { book: Book; onClose: () => v
         onChapter: (id, chapter, pages) => addStoryChapter(id, chapter, pages),
       }, controller.signal, { idea, length })
       setAdded(result.chapters)
+
+      // The new chapters are lettering over empty panels until somebody draws
+      // them, so offer to do it here rather than making it a second errand.
+      if (book.kind === 'graphic' && draw && !controller.signal.aborted) {
+        setProgress({ done: wanted, total: wanted, label: 'Drawing the pictures…' })
+        const written = useStore.getState().books.find((b) => b.id === book.id)
+        if (written) {
+          const art = await drawPanels(
+            written, style,
+            (pageId, panelId, assetId) => setPanelArt(book.id, pageId, panelId, assetId),
+            setDrawing, controller.signal,
+          )
+          if (art.stopped) {
+            setError({ code: 'drawing_stopped', message: art.stopped })
+            setProgress(null)
+            return
+          }
+        }
+      }
+
       setProgress(null)
       onClose()
     } catch (err) {
@@ -138,6 +163,44 @@ export function ContinueDialog({ book, onClose }: { book: Book; onClose: () => v
           </p>
         </div>
 
+        {book.kind === 'graphic' && (
+          <div>
+            <label className="flex items-center gap-2 text-sm text-ink-soft">
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-rule-strong accent-accent"
+                checked={draw}
+                disabled={busy}
+                onChange={(e) => setDraw(e.target.checked)}
+              />
+              Draw the pictures too
+            </label>
+            {draw && (
+              <select
+                className="field mt-2 w-full text-xs"
+                value={style}
+                disabled={busy}
+                aria-label="Art style"
+                onChange={(e) => setStyle(e.target.value as ArtStyle)}
+              >
+                {STYLES.map((option) => (
+                  <option key={option.id} value={option.id}>{option.label}</option>
+                ))}
+              </select>
+            )}
+            <p className="mt-1 text-xs text-ink-faint">
+              Panels already drawn are left alone. You can also do this any time from the
+              Draw button at the top of the book.
+            </p>
+          </div>
+        )}
+
+        {drawing && (
+          <p className="text-xs text-ink-soft">
+            {drawing.drawn} of {drawing.total} pictures drawn.
+          </p>
+        )}
+
         {progress && (
           <div className="rounded-lg border border-rule bg-paper-sunk/60 p-3">
             <div className="h-1.5 w-full overflow-hidden rounded-full bg-rule">
@@ -163,6 +226,12 @@ export function ContinueDialog({ book, onClose }: { book: Book; onClose: () => v
             {error.code === 'not_configured' && <p className="mt-1">{NOT_CONFIGURED_HELP}</p>}
             {error.code === 'quota' && <p className="mt-1">{QUOTA_HELP}</p>}
             {error.code === 'stale_build' && <p className="mt-1">{STALE_BUILD_HELP}</p>}
+            {error.code === 'drawing_stopped' && (
+              <p className="mt-1">
+                The chapters are written and saved — only the drawing stopped. Press Draw at the
+                top of the book whenever you like and it carries on from the next empty panel.
+              </p>
+            )}
             <div className="mt-2 border-t border-red-200 pt-2">
               <button
                 type="button"
