@@ -275,9 +275,56 @@ export function parseJsonBody(text: string): unknown {
   } catch { /* fall through to the brace scan */ }
   const start = trimmed.indexOf('{')
   const end = trimmed.lastIndexOf('}')
-  if (start === -1 || end <= start) return null
+  if (start !== -1 && end > start) {
+    try {
+      return JSON.parse(trimmed.slice(start, end + 1))
+    } catch { /* fall through to the repair */ }
+  }
+  return repairTruncatedJson(start === -1 ? trimmed : trimmed.slice(start))
+}
+
+/**
+ * Rescue a reply that stopped in the middle.
+ *
+ * A chapter that runs past its allowance is cut off mid-word, and what arrives
+ * is four good pages and the first half of a fifth — perfectly good writing
+ * that the app threw away whole because the brackets did not match. This winds
+ * back to the last element that finished properly and closes what is still
+ * open, so the chapter arrives a page short instead of not at all.
+ *
+ * It only ever truncates and closes: nothing is invented, and a reply that was
+ * never JSON in the first place still comes back as nothing.
+ */
+export function repairTruncatedJson(text: string): unknown {
+  const open: string[] = []
+  let inString = false
+  let escaped = false
+  let lastComplete = -1
+  let stackThen: string[] = []
+
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]
+    if (inString) {
+      if (escaped) escaped = false
+      else if (c === '\\') escaped = true
+      else if (c === '"') inString = false
+      continue
+    }
+    if (c === '"') { inString = true; continue }
+    if (c === '{') { open.push('}'); continue }
+    if (c === '[') { open.push(']'); continue }
+    if (c === '}' || c === ']') {
+      open.pop()
+      // A container just finished and something still holds it: everything up
+      // to here is whole, and the rest can be closed off.
+      if (open.length > 0) { lastComplete = i; stackThen = [...open] }
+      continue
+    }
+  }
+
+  if (lastComplete < 0) return null
   try {
-    return JSON.parse(trimmed.slice(start, end + 1))
+    return JSON.parse(text.slice(0, lastComplete + 1) + stackThen.reverse().join(''))
   } catch {
     return null
   }
@@ -872,7 +919,13 @@ async function writeWithOpenAi(
 
 /** A chapter needs far more room than an outline; neither should run away. */
 const OUTLINE_TOKENS = 8000
-const CHAPTER_TOKENS = 8000
+/**
+ * Room for a chapter. It was eight thousand, which was the right size when the
+ * model spent half its allowance thinking; asked to think lightly it writes
+ * considerably more, and a chapter cut off at the ceiling comes back as
+ * unreadable JSON. Sixteen is room to finish.
+ */
+const CHAPTER_TOKENS = 16000
 /** What one model said when asked to write a single word. */
 export interface ProbedModel {
   model: string
@@ -1145,9 +1198,16 @@ export default async function handler(req: Req, res: Res): Promise<void> {
 
     const parsed = parseJsonBody(written.text)
     if (!parsed || typeof parsed !== 'object') {
+      // This used to fail in silence, which left nothing to diagnose it with.
+      console.error(
+        `[generate-story] unreadable reply, finish=${written.finishReason}, `
+        + `${written.text.length} chars, ends: ${JSON.stringify(written.text.slice(-120))}`,
+      )
       fail(res, 502, {
         code: 'unreadable',
-        message: 'The story came back in a shape the app could not read. Try again.',
+        message: written.finishReason === 'MAX_TOKENS'
+          ? 'That chapter ran longer than it is allowed to be and was cut off. Try again — it is rarely the same twice.'
+          : 'The story came back in a shape the app could not read. Try again.',
       })
       return
     }

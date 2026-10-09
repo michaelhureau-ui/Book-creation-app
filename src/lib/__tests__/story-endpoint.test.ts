@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import handler, {
   describeProviderFailure as describeStoryFailure, looksLikeWrongModel, probeGoogleModels,
-  providerReason, refusalAdvice, resetGoogleTextModelCache, thinkingFor, withReason,
+  parseJsonBody, providerReason, refusalAdvice, repairTruncatedJson, resetGoogleTextModelCache,
+  thinkingFor, withReason,
 } from '../../../api/generate-story'
 import { describeProviderFailure as describeImageFailure } from '../../../api/generate-image'
 
@@ -645,5 +646,70 @@ describe('how hard the model is asked to think', () => {
     // First try carries it, the retry does not, and the story still arrives.
     expect(bodies[0]).toContain('thinkingConfig')
     expect(bodies[1]).not.toContain('thinkingConfig')
+  })
+})
+
+describe('a reply that stopped in the middle', () => {
+  const original = process.env.GOOGLE_API_KEY
+  beforeEach(() => { process.env.GOOGLE_API_KEY = 'test-key'; resetGoogleTextModelCache() })
+  afterEach(() => {
+    if (original === undefined) delete process.env.GOOGLE_API_KEY
+    else process.env.GOOGLE_API_KEY = original
+    vi.unstubAllGlobals()
+  })
+
+  /** What a chapter cut off at its token ceiling actually looks like. */
+  const cutOff = '{"pages":[{"paragraphs":["The lamp had gone out again."]},'
+    + '{"paragraphs":["She climbed the stair with the wick between her teeth."]},'
+    + '{"paragraphs":["Below her the sea went on doing wha'
+
+  it('keeps the pages that arrived whole instead of throwing the chapter away', () => {
+    const parsed = parseJsonBody(cutOff) as { pages?: { paragraphs: string[] }[] }
+    expect(parsed?.pages).toHaveLength(2)
+    expect(parsed?.pages?.[1].paragraphs[0]).toContain('wick between her teeth')
+  })
+
+  it('rescues a plan the same way', () => {
+    const parsed = parseJsonBody(
+      '{"title":"The Lantern","chapters":[{"title":"One","summary":"S"},{"title":"Tw',
+    ) as { title?: string; chapters?: unknown[] }
+    expect(parsed?.title).toBe('The Lantern')
+    expect(parsed?.chapters).toHaveLength(1)
+  })
+
+  it('invents nothing when there was never any JSON', () => {
+    expect(parseJsonBody('I am sorry, I cannot write that story.')).toBeNull()
+    expect(parseJsonBody('')).toBeNull()
+    expect(repairTruncatedJson('{"pages":[{"para')).toBeNull()
+  })
+
+  it('leaves a reply that is already whole exactly as it is', () => {
+    const whole = '{"pages":[{"paragraphs":["One."]},{"paragraphs":["Two."]}]}'
+    expect(parseJsonBody(whole)).toEqual(JSON.parse(whole))
+  })
+
+  it('is not fooled by a bracket inside the writing itself', () => {
+    const parsed = parseJsonBody(
+      '{"pages":[{"paragraphs":["She wrote \\"}]\\" on the glass."]},{"paragraphs":["And th',
+    ) as { pages?: { paragraphs: string[] }[] }
+    expect(parsed?.pages).toHaveLength(1)
+    expect(parsed?.pages?.[0].paragraphs[0]).toContain('on the glass')
+  })
+
+  it('says a chapter was cut off rather than blaming its shape', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: { body?: string }) => {
+      if (String(url).includes('/models?')) {
+        return jsonResponse({ models: [{ name: 'models/gemini-3.8-flash', supportedGenerationMethods: ['generateContent'] }] })
+      }
+      if (isPing(init)) return jsonResponse({ candidates: [{ content: { parts: [{ text: 'yes' }] } }] })
+      // Cut off before anything at all finished, so nothing can be salvaged.
+      return jsonResponse({
+        candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [{ text: '{"chapters":[{"title":"On' }] } }],
+      })
+    }))
+    const { res, out } = makeRes()
+    await handler({ method: 'POST', body: { idea: 'a fox at sea' } }, res)
+    expect(errorOf(out.body).code).toBe('unreadable')
+    expect(errorOf(out.body).message).toMatch(/ran longer than it is allowed/)
   })
 })
