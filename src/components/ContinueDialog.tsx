@@ -29,7 +29,7 @@ export function ContinueDialog({ book, onClose }: { book: Book; onClose: () => v
   const plan = book.writing
 
   const [length, setLength] = useState<StoryLength>(plan?.length ?? 'medium')
-  const [idea, setIdea] = useState(plan?.idea ?? '')
+  const [idea, setIdea] = useState(plan?.idea ?? book.description.trim())
   const [progress, setProgress] = useState<StoryProgress | null>(null)
   const [error, setError] = useState<{ code: string; message: string } | null>(null)
   const [check, setCheck] = useState<ServiceCheck | 'running' | { failed: string } | null>(null)
@@ -42,7 +42,9 @@ export function ContinueDialog({ book, onClose }: { book: Book; onClose: () => v
   const done = book.chapters.length
   const wanted = Math.max(chaptersIn(book.kind, length), done)
   const left = wanted - done
-  const ready = idea.trim().length > 0 || Boolean(plan?.show)
+  // The chapters already written say what the book is about better than any
+  // sentence could, so nothing has to be typed to carry one on.
+  const ready = done > 0 || idea.trim().length > 0 || Boolean(plan?.show)
 
   const carryOn = async (): Promise<void> => {
     if (busy || !ready) return
@@ -99,8 +101,8 @@ export function ContinueDialog({ book, onClose }: { book: Book; onClose: () => v
               aria-label="What is this story about"
             />
             <span className="mt-1 block text-xs text-ink-faint">
-              This book was written before the app kept the plan with the book, so it needs
-              reminding. What is already written is read back and carried on from.
+              Optional. What is already written is read back and carried on from, so this
+              only helps if there is something the chapters do not already say.
             </span>
           </label>
         )}

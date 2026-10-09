@@ -9,6 +9,7 @@ import {
   writeStory, type DrawingProgress, type ServiceCheck, type StoryProgress,
 } from '@/lib/story/generate'
 import { MAX_IDEA_LENGTH, MAX_SHOW_LENGTH, pagesIn } from '@/lib/story/limits'
+import { clearDraft, draftHasWriting, loadDraft, saveDraft } from '@/lib/story/draft'
 import { STYLES, type ArtStyle } from '@/lib/graphic/image-prompt'
 import type { BookKind } from '@/types'
 import type { StoryLength } from '@/lib/story/story'
@@ -55,15 +56,20 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
   const openBook = useStore((s) => s.openBook)
   const books = useStore((s) => s.books)
 
-  const [source, setSource] = useState<'own' | 'show'>('own')
-  const [show, setShow] = useState('')
-  const [retell, setRetell] = useState(false)
-  const [idea, setIdea] = useState('')
-  const [kind, setKind] = useState<BookKind>('prose')
-  const [length, setLength] = useState<StoryLength>('short')
-  const [audience, setAudience] = useState('middle')
-  const [draw, setDraw] = useState(false)
-  const [style, setStyle] = useState<ArtStyle>('color')
+  // Whatever was typed last time this form was open. Describing a book takes
+  // thought, and closing the form used to throw that thought away.
+  const [draft] = useState(() => loadDraft())
+  const [restored, setRestored] = useState(() => draftHasWriting(draft))
+
+  const [source, setSource] = useState<'own' | 'show'>(draft?.source ?? 'own')
+  const [show, setShow] = useState(draft?.show ?? '')
+  const [retell, setRetell] = useState(draft?.retell ?? false)
+  const [idea, setIdea] = useState(draft?.idea ?? '')
+  const [kind, setKind] = useState<BookKind>(draft?.kind ?? 'prose')
+  const [length, setLength] = useState<StoryLength>(draft?.length ?? 'short')
+  const [audience, setAudience] = useState(draft?.audience ?? 'middle')
+  const [draw, setDraw] = useState(draft?.draw ?? false)
+  const [style, setStyle] = useState<ArtStyle>(draft?.style ?? 'color')
   const [progress, setProgress] = useState<StoryProgress | null>(null)
   const [drawing, setDrawing] = useState<DrawingProgress | null>(null)
   const [error, setError] = useState<{ code: string; message: string } | null>(null)
@@ -73,6 +79,12 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
   const startedRef = useRef<string | null>(null)
 
   useEffect(() => () => abortRef.current?.abort(), [])
+
+  // Kept as it is typed, so closing the form — or the tab, or the laptop lid —
+  // costs nothing.
+  useEffect(() => {
+    saveDraft({ source, show, retell, idea, kind, length, audience, draw, style })
+  }, [source, show, retell, idea, kind, length, audience, draw, style])
 
   const busy = progress !== null
   const chosen = LENGTHS.find((l) => l.id === length) ?? LENGTHS[0]
@@ -94,6 +106,7 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
     abortRef.current = controller
 
     try {
+      clearDraft()
       const { bookId } = await writeStory(idea, kind, length, audience, {
         onProgress: setProgress,
         onStart: async (book) => {
@@ -402,6 +415,22 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
                 ? `${partial} ${partial === 1 ? 'chapter is' : 'chapters are'} already saved. You can stop and keep them.`
                 : 'Leave this open.'}
             </p>
+          </div>
+        )}
+
+        {restored && !busy && (
+          <div className="flex items-start justify-between gap-2 rounded-lg border border-rule bg-paper-sunk/60 p-2 text-xs text-ink-soft">
+            <p>Picked up where you left off — this is what you typed last time.</p>
+            <button
+              type="button"
+              className="shrink-0 font-semibold underline"
+              onClick={() => {
+                setSource('own'); setShow(''); setRetell(false); setIdea('')
+                setDraw(false); setRestored(false); clearDraft()
+              }}
+            >
+              Start fresh
+            </button>
           </div>
         )}
 
