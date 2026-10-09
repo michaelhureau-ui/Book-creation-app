@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import handler, {
-  chooseGoogleModel, describeProviderFailure, extractGoogleImage,
+  chooseGoogleModel, describeNoPicture, describeProviderFailure, extractGoogleImage,
   GOOGLE_RATIOS, pickGoogleRatio, resetGoogleModelCache,
 } from '../../../api/generate-image'
 
@@ -222,7 +222,24 @@ describe('the endpoint using a Google key', () => {
     expect(out.code).toBe(502)
     const error = (out.body as { error: { code: string; message: string } }).error
     expect(error.code).toBe('rejected')
-    expect(error.message).toMatch(/no picture/i)
+    // What the model actually said beats any wording of ours.
+    expect(error.message).toMatch(/I will not draw that/i)
+  })
+
+  it('carries the reason a picture was refused, whatever shape it comes in', () => {
+    expect(describeNoPicture({ promptFeedback: { blockReason: 'SAFETY' } })).toContain('blocked: SAFETY')
+    expect(describeNoPicture({ candidates: [{ finishReason: 'IMAGE_SAFETY' }] }))
+      .toContain('finish: IMAGE_SAFETY')
+    expect(describeNoPicture({
+      candidates: [{ safetyRatings: [{ category: 'HARM_CATEGORY_VIOLENCE', probability: 'HIGH' }] }],
+    })).toContain('HARM_CATEGORY_VIOLENCE=HIGH')
+    // A rating nobody needs to hear about is left out.
+    expect(describeNoPicture({
+      candidates: [{ safetyRatings: [{ category: 'HARM_CATEGORY_VIOLENCE', probability: 'NEGLIGIBLE' }] }],
+    })).toBe('')
+    // And a body with nothing in it says nothing rather than inventing a cause.
+    expect(describeNoPicture({})).toBe('')
+    expect(describeNoPicture(null)).toBe('')
   })
 
   it('passes a bad Google key through as not_configured', async () => {

@@ -169,6 +169,43 @@ export function chooseGoogleModel(models: GoogleModel[]): string | null {
 }
 
 /** Both response shapes Google uses: Imagen `:predict` and Gemini inline data. */
+/**
+ * Why a 200 came back without a picture.
+ *
+ * The model answers a refusal the same way it answers success — two hundred,
+ * with a body — so the reason is in the body or nowhere. It might be a blocked
+ * prompt, a finish reason, or the model talking back in words instead of
+ * drawing. All three are worth more than "no picture".
+ */
+export function describeNoPicture(body: unknown): string {
+  const json = body as {
+    promptFeedback?: { blockReason?: string; safetyRatings?: { category?: string; probability?: string }[] }
+    candidates?: {
+      finishReason?: string
+      safetyRatings?: { category?: string; probability?: string }[]
+      content?: { parts?: { text?: string }[] }
+    }[]
+  }
+  const parts: string[] = []
+
+  const blocked = json?.promptFeedback?.blockReason
+  if (blocked) parts.push(`blocked: ${blocked}`)
+
+  const candidate = json?.candidates?.[0]
+  if (candidate?.finishReason) parts.push(`finish: ${candidate.finishReason}`)
+
+  const flagged = [...(json?.promptFeedback?.safetyRatings ?? []), ...(candidate?.safetyRatings ?? [])]
+    .filter((r) => r?.probability && !/negligible|low/i.test(r.probability))
+    .map((r) => `${r.category}=${r.probability}`)
+  if (flagged.length) parts.push(flagged.join(', '))
+
+  // A model that will not draw often says so in words instead.
+  const said = (candidate?.content?.parts ?? []).map((p) => p?.text ?? '').join(' ').trim()
+  if (said) parts.push(`said: ${said.slice(0, 200)}`)
+
+  return parts.join(' · ')
+}
+
 export function extractGoogleImage(body: unknown): { data: string; mime: string } | null {
   const json = body as {
     predictions?: { bytesBase64Encoded?: string; mimeType?: string }[]
@@ -248,17 +285,24 @@ async function generateWithGoogle(
     return { ok: false, status: res.status, error: describeProviderFailure(res.status, body) }
   }
 
-  const image = extractGoogleImage(await res.json().catch(() => null))
+  const answered = await res.json().catch(() => null)
+  const image = extractGoogleImage(answered)
   if (!image) {
     // A refusal comes back as a 200 with no image, so say what happened rather
     // than letting it be flattened into a generic provider error.
-    console.error(`[generate-image] ${model} answered 200 with no picture`)
+    const why = describeNoPicture(answered)
+    console.error(
+      `[generate-image] ${model} answered 200 with no picture at ${ratio}`
+      + `${why ? ` — ${why}` : ` — shape: ${JSON.stringify(answered).slice(0, 300)}`}`,
+    )
     return {
       ok: false,
       status: 502,
       error: {
         code: 'rejected',
-        message: 'The image service returned no picture — it may have declined that description. Try wording it differently.',
+        message: why
+          ? `The picture service would not draw that — ${why}`
+          : 'The image service returned no picture — it may have declined that description. Try wording it differently.',
       },
     }
   }
@@ -297,13 +341,28 @@ export default async function handler(req: Req, res: Res): Promise<void> {
         res.status(200).json({ provider, probe: 'needs a Google key' })
         return
       }
+      // A panel that will not draw is the one worth asking about, so the probe
+      // can be handed the brief and the shape that failed rather than only its
+      // own safe little lighthouse.
+      const url = new URL(req.url ?? '/', 'https://local')
+      const subject = (url.searchParams.get('subject') || 'A small red lighthouse on a rock.').slice(0, 900)
+      const aspect = Number(url.searchParams.get('aspect') || '1') || 1
+      const style = url.searchParams.get('style')
+      const styled = style ? buildImagePrompt(subject, style) : subject
+
       const abort = new AbortController()
       const timer = setTimeout(() => abort.abort(), TIMEOUT_MS)
       try {
-        const drawn = await generateWithGoogle(googleKey, 'A small red lighthouse on a rock.', 1, abort.signal)
+        const drawn = await generateWithGoogle(googleKey, styled, aspect, abort.signal)
         res.status(200).json(drawn.ok
-          ? { provider, drew: true, model: await resolveGoogleModel(googleKey, abort.signal), bytes: drawn.image.length }
-          : { provider, drew: false, error: drawn.error })
+          ? {
+            provider,
+            drew: true,
+            model: await resolveGoogleModel(googleKey, abort.signal),
+            ratio: pickGoogleRatio(aspect),
+            bytes: drawn.image.length,
+          }
+          : { provider, drew: false, ratio: pickGoogleRatio(aspect), asked: styled.slice(0, 160), error: drawn.error })
       } catch (err) {
         res.status(200).json({
           provider,
