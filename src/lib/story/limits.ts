@@ -47,4 +47,4 @@ export function pagesIn(kind: 'prose' | 'graphic', length: 'short' | 'medium' | 
 }
 
 /** How many chapters one planning call asks for; mirrors the endpoint. */
-export const OUTLINE_BATCH = 10
+export const OUTLINE_BATCH = 6

@@ -48,7 +48,7 @@ describe('prompts', () => {
       'a fox at sea', 'prose', 'long', 'middle', '', false, sofar, 'The Lantern')
     expect(prompt).toContain('The Lantern')
     expect(prompt).toContain('Rell climbs the stair.')
-    expect(prompt).toContain('numbers 2 to 11')
+    expect(prompt).toContain(`numbers 2 to ${1 + OUTLINE_BATCH}`)
     // The middle of a book must not wrap the story up.
     expect(prompt).toContain('must not finish yet')
   })
