@@ -125,11 +125,13 @@ function shapeOf(kind: StoryKind, length: StoryLength): { chapters: number; page
  * is allowed to live, and a plan cut off halfway is what turned a two-hundred
  * page book into a five-page one.
  *
- * Ten at a time worked, but measured against production it took between
- * thirty-two and forty-five seconds depending on how busy Google was — and the
- * request has about forty-eight. Six leaves room for a bad evening.
+ * Ten took between thirty-two and forty-five seconds while the model was
+ * thinking hard about every summary, which was too close to the forty-eight the
+ * request has; six was the safe answer. Asking it to think lightly brought the
+ * same work down to fourteen, so ten fits again with room to spare — and ten at
+ * a time means a forty-chapter book is planned in four calls rather than seven.
  */
-export const OUTLINE_BATCH = 6
+export const OUTLINE_BATCH = 10
 
 export function buildOutlinePrompt(
   idea: string, kind: StoryKind, length: StoryLength, audience: string,
