@@ -401,6 +401,10 @@ export interface DrawingProgress {
   total: number
   /** Set once drawing has stopped early, with the reason. */
   stopped?: string
+  /** Panels the service would not draw, which it carried on past. */
+  failed?: number
+  /** What it said about the first of them, so "nothing happened" never is. */
+  reason?: string
 }
 
 /**
@@ -427,26 +431,61 @@ export async function drawPanels(
         : []))
 
   let drawn = 0
+  let failed = 0
+  let reason = ''
+
   for (const job of jobs) {
-    if (signal?.aborted) return { drawn, total: jobs.length, stopped: 'You stopped it.' }
-    onProgress({ drawn, total: jobs.length })
+    if (signal?.aborted) return { drawn, total: jobs.length, stopped: 'You stopped it.', failed, reason }
+    onProgress({ drawn, total: jobs.length, failed, reason })
     try {
-      const assetId = await generatePanelArt(
-        book.id, job.panel.note ?? '', style, job.aspect, signal)
+      const assetId = await drawOnePanel(book.id, job, style, signal)
       place(job.page.id, job.panel.id, assetId)
       drawn++
     } catch (err) {
-      if (signal?.aborted) return { drawn, total: jobs.length, stopped: 'You stopped it.' }
+      if (signal?.aborted) return { drawn, total: jobs.length, stopped: 'You stopped it.', failed, reason }
       if (!(err instanceof GenerationFailed)) throw err
       // A spent allowance or a refused key will refuse every panel after this
-      // one too. A single picture the model would not draw is worth skipping.
+      // one too, so there is nothing to be gained by working through the rest.
       if (err.code === 'quota' || err.code === 'rate_limited' || err.code === 'not_configured') {
-        return { drawn, total: jobs.length, stopped: err.message }
+        return { drawn, total: jobs.length, stopped: err.message, failed, reason }
       }
+      // A single picture the service would not draw is worth skipping — but
+      // skipping it in silence is how "I pressed draw and nothing happened"
+      // happens, so it is counted and the first reason is kept.
+      failed++
+      if (!reason) reason = err.message
     }
   }
 
-  const done = { drawn, total: jobs.length }
+  const done = { drawn, total: jobs.length, failed, reason }
   onProgress(done)
   return done
+}
+
+/** Transient failures worth another go: the service was busy, not the brief wrong. */
+const PASSING_ART = new Set(['network', 'provider_error', 'stale_build'])
+
+/**
+ * One panel, with a second and third go at a passing failure.
+ *
+ * A book is hundreds of pictures in a row, so a one-in-a-hundred blip is a
+ * certainty rather than a possibility, and losing a panel to one is a hole in
+ * the page nobody asked for.
+ */
+async function drawOnePanel(
+  bookId: string,
+  job: { panel: { note?: string }; aspect: number },
+  style: ArtStyle,
+  signal?: AbortSignal,
+  waits = [1200, 3500],
+): Promise<string> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await generatePanelArt(bookId, job.panel.note ?? '', style, job.aspect, signal)
+    } catch (err) {
+      const passing = err instanceof GenerationFailed && PASSING_ART.has(err.code)
+      if (!passing || attempt >= waits.length || signal?.aborted) throw err
+      await new Promise((resolve) => setTimeout(resolve, waits[attempt]))
+    }
+  }
 }

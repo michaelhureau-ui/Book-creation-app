@@ -113,10 +113,24 @@ export function DrawAllDialog({ book, onClose }: { book: Book; onClose: () => vo
           </div>
         )}
 
-        {done && !done.stopped && !busy && (
-          <p className="text-xs text-ink-soft">
-            {done.drawn} {done.drawn === 1 ? 'picture' : 'pictures'} drawn.
-          </p>
+        {done && !busy && (
+          <div className="space-y-1 text-xs text-ink-soft">
+            <p>
+              {done.drawn} {done.drawn === 1 ? 'picture' : 'pictures'} drawn
+              {done.failed ? `, ${done.failed} the service would not draw.` : '.'}
+            </p>
+            {Boolean(done.failed) && (
+              <>
+                {/* Nothing is more useless than a button that silently does
+                    nothing, which is what this was before it said this. */}
+                <p>It said: {done.reason || 'no reason given.'}</p>
+                <p className="text-ink-faint">
+                  Those panels usually come back if you press the button again, or you can open
+                  one and reword what should be in it. Everything else is drawn and kept.
+                </p>
+              </>
+            )}
+          </div>
         )}
 
         {error && (

@@ -242,6 +242,9 @@ async function generateWithGoogle(
 
   if (!res.ok) {
     const body = await res.text().catch(() => '')
+    // Reaches the deployment's logs. This endpoint used to fail in total
+    // silence, so a panel nobody could draw left nothing to diagnose it with.
+    console.error(`[generate-image] ${model} answered ${res.status}: ${body.slice(0, 400)}`)
     return { ok: false, status: res.status, error: describeProviderFailure(res.status, body) }
   }
 
@@ -249,6 +252,7 @@ async function generateWithGoogle(
   if (!image) {
     // A refusal comes back as a 200 with no image, so say what happened rather
     // than letting it be flattened into a generic provider error.
+    console.error(`[generate-image] ${model} answered 200 with no picture`)
     return {
       ok: false,
       status: 502,

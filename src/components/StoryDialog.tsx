@@ -132,6 +132,15 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
             setProgress(null)
             return
           }
+          if (result.failed) {
+            setError({
+              code: 'drawing_stopped',
+              message: `${result.drawn} pictures drawn, ${result.failed} the service would not draw.`
+                + ` It said: ${result.reason || 'no reason given.'}`,
+            })
+            setProgress(null)
+            return
+          }
         }
       }
       finish()

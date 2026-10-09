@@ -76,8 +76,13 @@ export function ContinueDialog({ book, onClose }: { book: Book; onClose: () => v
             (pageId, panelId, assetId) => setPanelArt(book.id, pageId, panelId, assetId),
             setDrawing, controller.signal,
           )
-          if (art.stopped) {
-            setError({ code: 'drawing_stopped', message: art.stopped })
+          if (art.stopped || art.failed) {
+            setError({
+              code: 'drawing_stopped',
+              message: art.stopped
+                ?? `${art.drawn} pictures drawn, ${art.failed} the service would not draw.`
+                  + ` It said: ${art.reason || 'no reason given.'}`,
+            })
             setProgress(null)
             return
           }
