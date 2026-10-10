@@ -7,6 +7,7 @@ import { PageStrip } from '@/components/PageStrip'
 import { DetailsPanel } from '@/components/DetailsPanel'
 import { ContinueDialog } from '@/components/ContinueDialog'
 import { DrawAllDialog } from '@/components/DrawAllDialog'
+import { FitLetteringDialog } from '@/components/FitLetteringDialog'
 import { Preview } from '@/components/Preview'
 import { ExportDialog } from '@/components/ExportDialog'
 import { PrintView } from '@/components/PrintView'
@@ -49,7 +50,7 @@ export function Workspace() {
   const addChapter = useStore((s) => s.addChapter)
 
   const [panel, setPanel] = useState<
-    'details' | 'preview' | 'export' | 'print' | 'movie' | 'carryOn' | 'drawAll' | null
+    'details' | 'preview' | 'export' | 'print' | 'movie' | 'carryOn' | 'drawAll' | 'fit' | null
   >(null)
   // The comic page size is a view/export setting rather than part of the book,
   // so it lives here and is handed to both the editor and the export dialog.
@@ -133,13 +134,22 @@ export function Workspace() {
             <Icons.Sparkle /> <span className="hidden md:inline">Write more</span>
           </button>
           {book.kind === 'graphic' && (
-            <button
-              className="btn btn-outline"
-              onClick={() => setPanel('drawAll')}
-              title="Draw the pictures for every empty panel"
-            >
-              <Icons.Image /> <span className="hidden md:inline">Draw</span>
-            </button>
+            <>
+              <button
+                className="btn btn-outline"
+                onClick={() => setPanel('drawAll')}
+                title="Draw the pictures for every empty panel"
+              >
+                <Icons.Image /> <span className="hidden md:inline">Draw</span>
+              </button>
+              <button
+                className="btn btn-outline"
+                onClick={() => setPanel('fit')}
+                title="Move the lettering off the artwork"
+              >
+                <Icons.Panels /> <span className="hidden md:inline">Fit words</span>
+              </button>
+            </>
           )}
           <button className="btn btn-outline" onClick={() => setPanel('movie')} title="Make a movie">
             <Icons.Film /> <span className="hidden md:inline">Movie</span>
@@ -216,6 +226,9 @@ export function Workspace() {
       {panel === 'details' && <DetailsPanel book={book} onClose={() => setPanel(null)} />}
       {panel === 'carryOn' && <ContinueDialog book={book} onClose={() => setPanel(null)} />}
       {panel === 'drawAll' && <DrawAllDialog book={book} onClose={() => setPanel(null)} />}
+      {panel === 'fit' && (
+        <FitLetteringDialog book={book} trim={trim} onClose={() => setPanel(null)} />
+      )}
       {panel === 'preview' && <Preview book={book} trim={trim} onClose={() => setPanel(null)} />}
       {panel === 'export' && <ExportDialog book={book} trim={trim} onClose={() => setPanel(null)} />}
       {panel === 'print' && <PrintView book={book} trim={trim} onClose={() => setPanel(null)} />}

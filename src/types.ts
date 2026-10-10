@@ -95,6 +95,12 @@ export interface Balloon {
    * does not get to overrule it.
    */
   placed?: boolean
+  /**
+   * Set once the balloon has been fitted to the artwork underneath it. The
+   * plain tidy-up leaves these alone too — it knows nothing about the picture,
+   * so it can only make a considered placement worse.
+   */
+  fitted?: boolean
   /** Position and width as a fraction (0–1) of the panel it sits in. */
   x: number
   y: number

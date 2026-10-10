@@ -46,7 +46,9 @@ export function aimBalloons(balloons: Balloon[]): Balloon[] {
   let speaking = 0
   let noises = 0
   return balloons.map((balloon) => {
-    if (balloon.placed) return balloon
+    // Hand-placed, or already fitted to the picture underneath: either way this
+    // knows less about where it belongs than whoever put it there.
+    if (balloon.placed || balloon.fitted) return balloon
 
     if (balloon.kind === 'sfx') {
       // A sound effect sat in the middle of the frame hides the very thing it
