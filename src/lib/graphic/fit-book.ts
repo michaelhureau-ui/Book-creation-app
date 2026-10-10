@@ -2,7 +2,9 @@ import type { Balloon, Book, Page } from '@/types'
 import { loadImages } from '@/lib/graphic/assets'
 import { layoutOf } from '@/lib/graphic/layouts'
 import { assetIdsOf, pageGeometry, sourceRect, type TrimId } from '@/lib/graphic/render'
-import { detailMap, emptyMap, fitBalloons } from '@/lib/graphic/fit'
+import {
+  detailMap, emptyMap, fitBalloons, fitBalloonsAbove, type FitMode,
+} from '@/lib/graphic/fit'
 
 /** How finely the artwork is read. Twelve across is a face or two per cell. */
 const GRID = 12
@@ -29,9 +31,10 @@ export interface FitProgress {
 export async function fitBookLettering(
   book: Book,
   trim: TrimId,
-  apply: (pageId: string, panelId: string, balloons: Balloon[]) => void,
+  apply: (pageId: string, panelId: string, balloons: Balloon[], band: number) => void,
   onProgress: (progress: FitProgress) => void,
   signal?: AbortSignal,
+  mode: FitMode = 'band',
 ): Promise<FitProgress> {
   const images = await loadImages(assetIdsOf(book.pages))
   const geo = pageGeometry({ trim, dpi: 150 })
@@ -52,7 +55,8 @@ export async function fitBookLettering(
       const frame = frames(page)[panelIndex]
       if (!frame) return
       const image = panel.assetId ? images.get(panel.assetId) : undefined
-      if (!image || panel.balloons.length === 0) return
+      if (panel.balloons.length === 0) return
+      if (!image && mode === 'over') return
 
       const rect = {
         x: frame.x * geo.width,
@@ -60,23 +64,28 @@ export async function fitBookLettering(
         w: frame.w * geo.width,
         h: frame.h * geo.height,
       }
-      const { sx, sy, sw, sh } = sourceRect(panel, image, rect)
-      ctx.clearRect(0, 0, SAMPLE, SAMPLE)
-      ctx.drawImage(image, sx, sy, sw, sh, 0, 0, SAMPLE, SAMPLE)
-
-      let map
-      try {
-        map = detailMap(ctx.getImageData(0, 0, SAMPLE, SAMPLE), GRID, GRID)
-      } catch {
-        // A canvas the browser will not let us read is no reason to stop.
-        map = emptyMap(GRID, GRID)
+      let map = emptyMap(GRID, GRID)
+      if (image) {
+        const { sx, sy, sw, sh } = sourceRect(panel, image, rect)
+        ctx.clearRect(0, 0, SAMPLE, SAMPLE)
+        ctx.drawImage(image, sx, sy, sw, sh, 0, 0, SAMPLE, SAMPLE)
+        try {
+          map = detailMap(ctx.getImageData(0, 0, SAMPLE, SAMPLE), GRID, GRID)
+        } catch { /* a canvas the browser will not let us read is no reason to stop */ }
       }
 
-      const fitted = fitBalloons(panel.balloons, map, rect.w / rect.h)
+      const aspect = rect.w / rect.h
+      const { fitted, band } = mode === 'band'
+        ? (() => {
+          const out = fitBalloonsAbove(panel.balloons, aspect, map)
+          return { fitted: out.balloons, band: out.band }
+        })()
+        : { fitted: fitBalloons(panel.balloons, map, aspect), band: 0 }
+
       const changed = fitted.some((b, i) =>
         Math.abs(b.x - panel.balloons[i].x) > 0.001 || Math.abs(b.y - panel.balloons[i].y) > 0.001)
       if (changed) moved += fitted.length
-      apply(page.id, panel.id, fitted)
+      apply(page.id, panel.id, fitted, band)
     })
 
     // Let the page breathe, so a long book does not lock the screen solid.

@@ -72,7 +72,9 @@ interface State {
 
   addBalloon: (bookId: string, pageId: string, panelId: string, kind: BalloonKind) => void
   /** Replace a panel's lettering wholesale, as fitting it to the artwork does. */
-  setPanelBalloons: (bookId: string, pageId: string, panelId: string, balloons: Balloon[]) => void
+  setPanelBalloons: (
+    bookId: string, pageId: string, panelId: string, balloons: Balloon[], letterBand?: number,
+  ) => void
   updateBalloon: (bookId: string, pageId: string, panelId: string, balloonId: string, patch: Partial<Omit<Balloon, 'id'>>) => void
   removeBalloon: (bookId: string, pageId: string, panelId: string, balloonId: string) => void
 }
@@ -456,14 +458,18 @@ export const useStore = create<State>((set, get) => {
       set({ selectedPanelId: panelId, selectedBalloonId: balloon.id })
     },
 
-    setPanelBalloons: (bookId, pageId, panelId, balloons) =>
+    setPanelBalloons: (bookId, pageId, panelId, balloons, letterBand) =>
       patchBook(bookId, (b) => ({
         ...b,
         pages: b.pages.map((p) =>
           p.id !== pageId ? p : {
             ...p,
             panels: p.panels.map((panel) =>
-              panel.id !== panelId ? panel : { ...panel, balloons }),
+              panel.id !== panelId ? panel : {
+                ...panel,
+                balloons,
+                ...(letterBand === undefined ? {} : { letterBand }),
+              }),
           }),
       })),
 

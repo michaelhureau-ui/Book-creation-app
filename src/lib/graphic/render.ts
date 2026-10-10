@@ -434,6 +434,17 @@ function drawTail(
  * Cover-fit the artwork in its frame, then apply the panel's zoom and pan.
  * Returns the source rectangle to sample from the image.
  */
+/**
+ * Where the artwork actually goes inside its frame, once any strip reserved
+ * for lettering is taken off the top.
+ */
+export function artRect(panel: Panel, rect: Rect): Rect {
+  const band = Math.min(0.6, Math.max(0, panel.letterBand ?? 0))
+  if (band <= 0) return rect
+  const taken = rect.h * band
+  return { x: rect.x, y: rect.y + taken, w: rect.w, h: rect.h - taken }
+}
+
 export function sourceRect(
   panel: Panel,
   image: { naturalWidth: number; naturalHeight: number },
@@ -480,13 +491,21 @@ export function drawPage(
     ctx.rect(rect.x, rect.y, rect.w, rect.h)
     ctx.clip()
 
+    // A panel may keep a strip at the top clear of artwork for its lettering.
+    // Guessing which part of a picture can be covered is guesswork; leaving
+    // room for the words is not.
+    const art = artRect(panel, rect)
     const image = panel.assetId ? images.get(panel.assetId) : undefined
+    if (art.y > rect.y) {
+      ctx.fillStyle = PAPER
+      ctx.fillRect(rect.x, rect.y, rect.w, art.y - rect.y)
+    }
     if (image) {
-      const { sx, sy, sw, sh } = sourceRect(panel, image, rect)
-      ctx.drawImage(image, sx, sy, sw, sh, rect.x, rect.y, rect.w, rect.h)
+      const { sx, sy, sw, sh } = sourceRect(panel, image, art)
+      ctx.drawImage(image, sx, sy, sw, sh, art.x, art.y, art.w, art.h)
     } else {
       ctx.fillStyle = EMPTY_PANEL
-      ctx.fillRect(rect.x, rect.y, rect.w, rect.h)
+      ctx.fillRect(art.x, art.y, art.w, art.h)
     }
 
     for (const balloon of panel.balloons) drawBalloon(ctx, balloon, rect, scale)

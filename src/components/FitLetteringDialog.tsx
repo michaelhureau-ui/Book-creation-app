@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react'
 import { Modal } from '@/components/ui'
 import { useStore } from '@/lib/store'
 import { fitBookLettering, type FitProgress } from '@/lib/graphic/fit-book'
+import type { FitMode } from '@/lib/graphic/fit'
 import type { TrimId } from '@/lib/graphic/render'
 import type { Book } from '@/types'
 
@@ -21,6 +22,7 @@ export function FitLetteringDialog(
   { book, trim, onClose }: { book: Book; trim: TrimId; onClose: () => void },
 ) {
   const setPanelBalloons = useStore((s) => s.setPanelBalloons)
+  const [mode, setMode] = useState<FitMode>('band')
   const [progress, setProgress] = useState<FitProgress | null>(null)
   const [done, setDone] = useState<FitProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -45,8 +47,9 @@ export function FitLetteringDialog(
     try {
       const result = await fitBookLettering(
         book, trim,
-        (pageId, panelId, balloons) => setPanelBalloons(book.id, pageId, panelId, balloons),
-        setProgress, controller.signal,
+        (pageId, panelId, balloons, band) =>
+          setPanelBalloons(book.id, pageId, panelId, balloons, band),
+        setProgress, controller.signal, mode,
       )
       setDone(result)
     } catch (err) {
@@ -76,10 +79,34 @@ export function FitLetteringDialog(
       <div className="space-y-3 text-sm text-ink-soft">
         <p>
           The words were written before the pictures were drawn, so they sit where an empty
-          panel suggested — often straight across a face. This reads each panel to find where
-          the detail is, puts the balloons over the quiet parts, and points every tail at
-          whoever is speaking.
+          panel suggested — often straight across a face. This moves them.
         </p>
+
+        <div className="space-y-2">
+          {([
+            ['band', 'Above the picture', 'The picture is drawn a little smaller and the words sit in a clear strip above it, with tails reaching down to whoever is speaking. Nothing is ever covered.'],
+            ['over', 'On the picture', 'The words stay on the artwork, placed over the flattest parts the app can find. Keeps the picture full size, but on a busy drawing it can still land somewhere you would rather it did not.'],
+          ] as const).map(([id, label, note]) => (
+            <label
+              key={id}
+              className={`block cursor-pointer rounded-lg border p-2 ${
+                mode === id ? 'border-accent bg-accent-soft/40' : 'border-rule'
+              }`}
+            >
+              <span className="flex items-center gap-2 text-sm font-semibold text-ink">
+                <input
+                  type="radio"
+                  className="accent-accent"
+                  checked={mode === id}
+                  disabled={busy}
+                  onChange={() => setMode(id)}
+                />
+                {label}
+              </span>
+              <span className="mt-0.5 block pl-6 text-xs text-ink-faint">{note}</span>
+            </label>
+          ))}
+        </div>
         <p className="text-xs text-ink-faint">
           Only the positions move. The words, the order they are read in and who says what stay
           exactly as they are — and any balloon you have dragged yourself is left alone.

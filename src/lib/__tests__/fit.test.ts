@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  balloonHeight, busiestSpot, busynessUnder, detailMap, emptyMap, fitBalloons,
+  balloonHeight, busiestSpot, busynessUnder, detailMap, emptyMap, fitBalloons, fitBalloonsAbove,
 } from '@/lib/graphic/fit'
 import { createBalloon } from '@/lib/graphic/pages'
 import type { Balloon, BalloonKind } from '@/types'
@@ -124,5 +124,75 @@ describe('fitting the lettering to the picture', () => {
     expect(after.kind).toBe(before.kind)
     expect(after.width).toBe(before.width)
     expect(after.id).toBe(before.id)
+  })
+})
+
+describe('lettering above the picture, where it cannot cover anything', () => {
+  it('stacks every balloon inside the strip it reserves', () => {
+    const { balloons, band } = fitBalloonsAbove([
+      say('speech', 'Out again. Third time this week.', 'left'),
+      say('speech', 'The wind has opinions.', 'right'),
+    ], 1.6)
+
+    expect(band).toBeGreaterThan(0)
+    for (const balloon of balloons.filter((b) => b.kind !== 'sfx')) {
+      // Wholly inside the clear strip: nothing dips into the artwork.
+      expect(balloon.y + balloonHeight(balloon, 1.6) / 2).toBeLessThanOrEqual(band + 0.001)
+    }
+  })
+
+  it('still points the tails down into the picture, at the speaker', () => {
+    const { balloons, band } = fitBalloonsAbove([
+      say('speech', 'Mine.', 'left'),
+      say('speech', 'Mine too.', 'right'),
+    ], 1.6)
+    const [left, right] = balloons
+    expect(left.tailY).toBeGreaterThan(band)
+    expect(right.tailY).toBeGreaterThan(band)
+    expect(left.tailX).toBeLessThan(right.tailX)
+  })
+
+  it('never lets the strip swallow the panel, however much is said', () => {
+    const chatty = Array.from({ length: 6 }, (_, i) =>
+      say('speech', `${'A rather long line of dialogue. '.repeat(3)} ${i}`, 'left'))
+    const { balloons, band } = fitBalloonsAbove(chatty, 1.6)
+    expect(band).toBeLessThanOrEqual(0.55)
+    for (const balloon of balloons) expect(balloon.y).toBeLessThan(0.56)
+  })
+
+  it('leaves sound effects down on the artwork, where they belong', () => {
+    const { balloons } = fitBalloonsAbove([say('speech', 'Look out.', 'left'), say('sfx', 'THUMP')], 1.6)
+    const noise = balloons.find((b) => b.kind === 'sfx')!
+    expect(noise.y).toBeGreaterThan(0.75)
+  })
+
+  it('keeps the reading order, the words and the speakers', () => {
+    const before = [say('caption', 'Midwinter.'), say('speech', 'Out again.', 'left')]
+    const { balloons } = fitBalloonsAbove(before, 1.6)
+    expect(balloons.map((b) => b.id)).toEqual(before.map((b) => b.id))
+    expect(balloons.map((b) => b.text)).toEqual(before.map((b) => b.text))
+    expect(balloons[0].y).toBeLessThan(balloons[1].y)
+  })
+
+  it('reserves nothing when every balloon was placed by hand', () => {
+    const mine: Balloon = { ...say('speech', 'Here.', 'left'), placed: true }
+    const { balloons, band } = fitBalloonsAbove([mine], 1.6)
+    expect(band).toBe(0)
+    expect(balloons[0]).toEqual(mine)
+  })
+})
+
+describe('where a sound effect lands', () => {
+  it('takes the quieter corner when the picture says which that is', () => {
+    // The character is low-left, so the noise should go right.
+    const map = mapWithSubjectAt(2, 9)
+    const { balloons } = fitBalloonsAbove([say('sfx', 'THUMP')], 1.6, map)
+    expect(balloons[0].x).toBeGreaterThan(0.5)
+  })
+
+  it('sends a second one to the other side', () => {
+    const map = mapWithSubjectAt(2, 9)
+    const { balloons } = fitBalloonsAbove([say('sfx', 'THUMP'), say('sfx', 'CRACK')], 1.6, map)
+    expect(Math.sign(balloons[0].x - 0.5)).not.toBe(Math.sign(balloons[1].x - 0.5))
   })
 })

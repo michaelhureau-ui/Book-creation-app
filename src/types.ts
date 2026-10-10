@@ -111,6 +111,12 @@ export interface Balloon {
 }
 
 export interface Panel {
+  /**
+   * A strip across the top of the panel kept clear of artwork, as a fraction
+   * of the panel's height, so the lettering has somewhere to sit that is not
+   * on top of anybody. Zero means the picture fills the frame as before.
+   */
+  letterBand?: number
   id: string
   /** Key into the asset store, or null while the panel is still empty. */
   assetId: string | null
