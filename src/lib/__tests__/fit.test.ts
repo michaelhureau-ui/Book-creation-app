@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   balloonHeight, busiestSpot, busynessUnder, detailMap, emptyMap, fitBalloons, fitBalloonsAbove,
+  bandFor, sideOf, speakerSpot, type People,
 } from '@/lib/graphic/fit'
 import { createBalloon } from '@/lib/graphic/pages'
 import type { Balloon, BalloonKind } from '@/types'
@@ -18,6 +19,16 @@ function mapWithSubjectAt(col: number, row: number, cols = 12, rows = 12) {
 
 function say(kind: BalloonKind, text: string, side?: Balloon['side']): Balloon {
   return { ...createBalloon(kind), text, side, speaker: side ? 'Rell' : undefined }
+}
+
+/** A line with a named speaker, for the cases where who matters. */
+function spoken(text: string, speaker: string): Balloon {
+  return { ...createBalloon('speech'), text, speaker }
+}
+
+/** Where the service that looked at the picture says people are. */
+function found(spots: Record<string, [number, number]>): People {
+  return new Map(Object.entries(spots).map(([name, [x, y]]) => [name, { x, y }]))
 }
 
 describe('reading a panel for where the detail is', () => {
@@ -160,10 +171,22 @@ describe('lettering above the picture, where it cannot cover anything', () => {
     for (const balloon of balloons) expect(balloon.y).toBeLessThan(0.56)
   })
 
-  it('leaves sound effects down on the artwork, where they belong', () => {
-    const { balloons } = fitBalloonsAbove([say('speech', 'Look out.', 'left'), say('sfx', 'THUMP')], 1.6)
+  it('puts sound effects in the strip too, so no ink lands on the picture', () => {
+    const { balloons, band } = fitBalloonsAbove(
+      [say('speech', 'Look out.', 'left'), say('sfx', 'THUMP')], 1.6,
+    )
     const noise = balloons.find((b) => b.kind === 'sfx')!
-    expect(noise.y).toBeGreaterThan(0.75)
+    expect(noise.y + balloonHeight(noise, 1.6) / 2).toBeLessThanOrEqual(band + 0.001)
+    // And no tail, so nothing reaches down out of the strip either.
+    expect(noise.tailX).toBeCloseTo(noise.x)
+    expect(noise.tailY).toBeCloseTo(noise.y)
+  })
+
+  it('counts the sound effect when working out how deep the strip must be', () => {
+    const speech = [say('speech', 'Look out.', 'left')]
+    const quiet = fitBalloonsAbove(speech, 1.6).band
+    const loud = fitBalloonsAbove([...speech, say('sfx', 'THUMP')], 1.6).band
+    expect(loud).toBeGreaterThan(quiet)
   })
 
   it('keeps the reading order, the words and the speakers', () => {
@@ -183,16 +206,119 @@ describe('lettering above the picture, where it cannot cover anything', () => {
 })
 
 describe('where a sound effect lands', () => {
-  it('takes the quieter corner when the picture says which that is', () => {
-    // The character is low-left, so the noise should go right.
-    const map = mapWithSubjectAt(2, 9)
-    const { balloons } = fitBalloonsAbove([say('sfx', 'THUMP')], 1.6, map)
-    expect(balloons[0].x).toBeGreaterThan(0.5)
+  it('keeps its narrow shape rather than spreading like a caption', () => {
+    const wide = { ...say('sfx', 'THUMP'), width: 0.9 }
+    const { balloons } = fitBalloonsAbove([wide], 1.6)
+    expect(balloons[0].width).toBeLessThanOrEqual(0.4)
   })
 
-  it('sends a second one to the other side', () => {
+  it('stacks two of them without either sitting on the other', () => {
+    const { balloons } = fitBalloonsAbove([say('sfx', 'THUMP'), say('sfx', 'CRACK')], 1.6)
+    expect(balloons[0].y).toBeLessThan(balloons[1].y)
+  })
+})
+
+describe('aiming at the person who is actually speaking', () => {
+  it('reads a point as being on the left, in the middle or on the right', () => {
+    expect(sideOf(0.1)).toBe('left')
+    expect(sideOf(0.5)).toBe('middle')
+    expect(sideOf(0.9)).toBe('right')
+  })
+
+  it('finds the speaker whatever case their name was written in', () => {
+    const spot = speakerSpot(spoken('Here.', 'Kara'), found({ kara: [0.8, 0.4] }))
+    expect(spot?.x).toBeCloseTo(0.8)
+    // The mouth is a little below the middle of the head.
+    expect(spot!.y).toBeGreaterThan(0.4)
+  })
+
+  it('knows when it was not told where somebody is', () => {
+    expect(speakerSpot(spoken('Here.', 'Dev'), found({ kara: [0.8, 0.4] }))).toBeNull()
+    expect(speakerSpot(spoken('Here.', 'Kara'), undefined)).toBeNull()
+  })
+
+  it('puts the tail on the speaker rather than on the busiest part of the picture', () => {
+    // The pixels say the detail is low-left. The picture says Kara is on the
+    // right — and the picture is the one that knows.
     const map = mapWithSubjectAt(2, 9)
-    const { balloons } = fitBalloonsAbove([say('sfx', 'THUMP'), say('sfx', 'CRACK')], 1.6, map)
-    expect(Math.sign(balloons[0].x - 0.5)).not.toBe(Math.sign(balloons[1].x - 0.5))
+    const { balloons } = fitBalloonsAbove(
+      [spoken('Over here.', 'Kara')], 1.6, map, found({ kara: [0.82, 0.55] }),
+    )
+    expect(balloons[0].tailX).toBeCloseTo(0.82, 1)
+    expect(balloons[0].side).toBe('right')
+  })
+
+  it('sits the balloon above its speaker, so the tail is short', () => {
+    const { balloons } = fitBalloonsAbove(
+      [spoken('Over here.', 'Kara')], 1.6, undefined, found({ kara: [0.78, 0.6] }),
+    )
+    expect(Math.abs(balloons[0].x - balloons[0].tailX)).toBeLessThan(0.12)
+  })
+
+  it('aims two speakers at their own faces, not at one shared guess', () => {
+    const { balloons } = fitBalloonsAbove(
+      [spoken('Mine.', 'Kara'), spoken('Mine too.', 'Dev')],
+      1.6, undefined, found({ kara: [0.2, 0.6], dev: [0.85, 0.5] }),
+    )
+    expect(balloons[0].tailX).toBeLessThan(0.4)
+    expect(balloons[1].tailX).toBeGreaterThan(0.7)
+  })
+
+  it('allows for the picture being pushed down the panel by the strip', () => {
+    // The service looked at the artwork as it will be drawn — inside the part
+    // of the frame left under the strip. A face a tenth of the way down *that*
+    // picture is most of the way down the panel, and a tail that forgets the
+    // difference stops short of the person.
+    const lines = [
+      spoken('Up here.', 'Kara'),
+      spoken('I see you.', 'Dev'),
+      spoken('Then come up.', 'Kara'),
+    ]
+    const band = bandFor(lines, 1.6)
+    expect(band).toBeGreaterThan(0.2)
+
+    const { balloons } = fitBalloonsAbove(
+      lines, 1.6, undefined, found({ kara: [0.3, 0.1], dev: [0.8, 0.1] }),
+    )
+    for (const balloon of balloons) {
+      expect(balloon.tailY).toBeGreaterThan(band)
+      // A tenth of the way down the picture, which starts where the strip ends.
+      expect(balloon.tailY).toBeCloseTo(band + (0.1 + 0.05) * (1 - band), 2)
+    }
+  })
+
+  it('works out the strip before the picture has been read', () => {
+    const lines = [spoken('Up here.', 'Kara'), say('sfx', 'THUMP')]
+    expect(bandFor(lines, 1.6)).toBeCloseTo(fitBalloonsAbove(lines, 1.6).band, 5)
+    expect(bandFor([], 1.6)).toBe(0)
+  })
+
+  it('falls back to reading the picture when nobody was located', () => {
+    const map = mapWithSubjectAt(2, 9)
+    const { balloons, band } = fitBalloonsAbove([say('speech', 'Here.', 'left')], 1.6, map)
+    expect(balloons[0].tailY).toBeGreaterThan(band)
+  })
+})
+
+describe('keeping off a face that was actually seen', () => {
+  it('moves a balloon off a face even where the picture reads as quiet', () => {
+    // A flat panel: by busyness alone every spot is equally good, so the only
+    // thing that can push the balloon off the face is having been told it is
+    // there.
+    const map = emptyMap()
+    const line = say('speech', 'Hello.', 'middle')
+    const [clear] = fitBalloons([line], map, 1.6, undefined, [{ x: 0.5, y: 0.14 }])
+    expect(
+      Math.abs(clear.x - 0.5) > clear.width / 2
+      || Math.abs(clear.y - 0.14) > balloonHeight(clear, 1.6) / 2,
+    ).toBe(true)
+  })
+
+  it('still points the tail at the located speaker in this mode', () => {
+    const map = mapWithSubjectAt(2, 9)
+    const [only] = fitBalloons(
+      [spoken('Over here.', 'Kara')], map, 1.6, found({ kara: [0.85, 0.5] }),
+    )
+    expect(only.tailX).toBeCloseTo(0.85, 1)
   })
 })

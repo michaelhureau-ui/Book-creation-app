@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { Modal } from '@/components/ui'
 import { useStore } from '@/lib/store'
-import { fitBookLettering, type FitProgress } from '@/lib/graphic/fit-book'
+import { fitBookLettering, speakersIn, type FitProgress } from '@/lib/graphic/fit-book'
 import type { FitMode } from '@/lib/graphic/fit'
 import type { TrimId } from '@/lib/graphic/render'
 import type { Book } from '@/types'
@@ -23,16 +23,20 @@ export function FitLetteringDialog(
 ) {
   const setPanelBalloons = useStore((s) => s.setPanelBalloons)
   const [mode, setMode] = useState<FitMode>('band')
+  const [look, setLook] = useState(true)
   const [progress, setProgress] = useState<FitProgress | null>(null)
   const [done, setDone] = useState<FitProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
   const abortRef = useRef<AbortController | null>(null)
 
-  const { drawn, lettered } = useMemo(() => {
+  const { drawn, lettered, speaking } = useMemo(() => {
     const panels = book.pages.flatMap((page) => page.panels)
     return {
       drawn: panels.filter((panel) => panel.assetId).length,
       lettered: panels.filter((panel) => panel.assetId && panel.balloons.length > 0).length,
+      // Only a panel with a named speaker is worth looking at: there is nobody
+      // to find in a panel of captions and sound effects.
+      speaking: panels.filter((p) => p.assetId && speakersIn(p).length > 0).length,
     }
   }, [book])
 
@@ -49,7 +53,7 @@ export function FitLetteringDialog(
         book, trim,
         (pageId, panelId, balloons, band) =>
           setPanelBalloons(book.id, pageId, panelId, balloons, band),
-        setProgress, controller.signal, mode,
+        setProgress, controller.signal, mode, look,
       )
       setDone(result)
     } catch (err) {
@@ -107,6 +111,31 @@ export function FitLetteringDialog(
             </label>
           ))}
         </div>
+        <label
+          className={`block cursor-pointer rounded-lg border p-2 ${
+            look ? 'border-accent bg-accent-soft/40' : 'border-rule'
+          }`}
+        >
+          <span className="flex items-center gap-2 text-sm font-semibold text-ink">
+            <input
+              type="checkbox"
+              className="accent-accent"
+              checked={look}
+              disabled={busy}
+              onChange={(e) => setLook(e.target.checked)}
+            />
+            Look at each picture to find who is speaking
+          </span>
+          <span className="mt-0.5 block pl-6 text-xs text-ink-faint">
+            The app cannot tell a face from a brick wall by itself, so the tails end up pointing
+            at whatever part of the drawing has the most detail in it. With this on, each picture
+            is shown to the drawing service and it says where each character is, so the tail
+            lands on the right person. {speaking} {speaking === 1 ? 'panel has' : 'panels have'} somebody
+            speaking in {speaking === 1 ? 'it' : 'them'}, so that is {speaking} quick look — a few
+            pence for the whole book, and it needs a connection.
+          </span>
+        </label>
+
         <p className="text-xs text-ink-faint">
           Only the positions move. The words, the order they are read in and who says what stay
           exactly as they are — and any balloon you have dragged yourself is left alone.
@@ -131,11 +160,31 @@ export function FitLetteringDialog(
         )}
 
         {done && !busy && (
-          <p className="text-xs">
-            {done.moved === 0
-              ? 'Everything was already in a good spot.'
-              : `${done.moved} balloons moved across ${done.pages} pages.`}
-          </p>
+          <div className="space-y-1 text-xs">
+            <p>
+              {done.moved === 0
+                ? 'Everything was already in a good spot.'
+                : `${done.moved} balloons moved across ${done.pages} pages.`}
+            </p>
+            {mode === 'band' && done.moved > 0 && (
+              <p className="text-ink-faint">
+                Every one of them now sits in a clear strip above its picture, so nothing is
+                covered.
+              </p>
+            )}
+            {done.looked > 0 && (
+              <p className="text-ink-faint">
+                {done.looked} {done.looked === 1 ? 'picture was' : 'pictures were'} looked at to
+                find who is speaking, and the tails point at them.
+              </p>
+            )}
+            {done.blind && (
+              <p className="rounded-md border border-amber-200 bg-amber-50 p-2 text-amber-900">
+                The pictures could not be looked at, so the tails were aimed by reading the
+                drawing instead, which is a guess. {done.blind}
+              </p>
+            )}
+          </div>
         )}
 
         {error && (

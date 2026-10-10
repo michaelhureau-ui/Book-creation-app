@@ -10,6 +10,12 @@
  * Anything else (notably /api/) is left alone entirely.
  */
 const CACHE = 'bookwright-v1'
+// Replaced at build time. Its only job is to make this file's bytes change
+// with every deploy, so the browser notices there is a new app to install.
+const BUILD = '__BUILD__'
+self.addEventListener('message', (event) => {
+  if (event.data === 'which-build') event.source?.postMessage({ build: BUILD })
+})
 
 self.addEventListener('install', (event) => {
   // Take over immediately rather than waiting for every tab to close.
