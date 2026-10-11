@@ -45,7 +45,10 @@ export function ContinueDialog({ book, onClose }: { book: Book; onClose: () => v
 
   const busy = progress !== null
   const done = book.chapters.length
-  const wanted = Math.max(chaptersIn(book.kind, length), done)
+  // A picture book is stored as a graphic book; what it was written as is what
+  // decides how long it should be.
+  const form = book.writing?.form ?? book.kind
+  const wanted = Math.max(chaptersIn(form, length, book.writing?.pages), done)
   const left = wanted - done
   // The chapters already written say what the book is about better than any
   // sentence could, so nothing has to be typed to carry one on.
@@ -156,7 +159,7 @@ export function ContinueDialog({ book, onClose }: { book: Book; onClose: () => v
               >
                 {option.label}
                 <span className="mt-0.5 block text-[0.65rem] font-normal opacity-80">
-                  {pagesIn(book.kind, option.id)} pages
+                  {pagesIn(form, option.id)} pages
                 </span>
               </button>
             ))}

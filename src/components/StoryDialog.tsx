@@ -13,12 +13,19 @@ import {
 } from '@/lib/story/limits'
 import { clearDraft, draftHasWriting, loadDraft, saveDraft } from '@/lib/story/draft'
 import { STYLES, type ArtStyle } from '@/lib/graphic/image-prompt'
-import type { BookKind } from '@/types'
-import type { StoryLength } from '@/lib/story/story'
+import type { StoryKind, StoryLength } from '@/lib/story/story'
 
-const KINDS: { id: BookKind; name: string; hint: string; icon: (p: { className?: string }) => JSX.Element }[] = [
+const KINDS: {
+  id: StoryKind; name: string; hint: string; icon: (p: { className?: string }) => JSX.Element
+}[] = [
   { id: 'prose', name: 'Novel', hint: 'Chapters of written text.', icon: Icons.Book },
   { id: 'graphic', name: 'Graphic novel', hint: 'Pages of panels and balloons.', icon: Icons.Panels },
+  {
+    id: 'picture',
+    name: 'Picture book',
+    hint: 'One big picture a page, a line or two underneath.',
+    icon: Icons.Image,
+  },
 ]
 
 /**
@@ -27,10 +34,21 @@ const KINDS: { id: BookKind; name: string; hint: string; icon: (p: { className?:
  * out here, because a graphic novel's lengths are nothing like a novel's: a
  * comic is twenty-four pages, not two hundred.
  */
-const LENGTHS: { id: StoryLength; label: string; wait: string; note: Record<BookKind, string> }[] = [
-  { id: 'short', label: 'Short', wait: 'a few minutes', note: { prose: '', graphic: 'one issue' } },
-  { id: 'medium', label: 'Medium', wait: 'around ten minutes', note: { prose: '', graphic: 'a collection' } },
-  { id: 'long', label: 'Long', wait: 'up to half an hour', note: { prose: '', graphic: 'a whole book' } },
+const LENGTHS: {
+  id: StoryLength; label: string; wait: string; note: Record<StoryKind, string>
+}[] = [
+  {
+    id: 'short', label: 'Short', wait: 'a few minutes',
+    note: { prose: '', graphic: 'one issue', picture: 'a bedtime one' },
+  },
+  {
+    id: 'medium', label: 'Medium', wait: 'around ten minutes',
+    note: { prose: '', graphic: 'a collection', picture: 'the usual size' },
+  },
+  {
+    id: 'long', label: 'Long', wait: 'up to half an hour',
+    note: { prose: '', graphic: 'a whole book', picture: 'a long one' },
+  },
 ]
 
 const AUDIENCES: { id: string; label: string }[] = [
@@ -67,7 +85,7 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
   const [show, setShow] = useState(draft?.show ?? '')
   const [retell, setRetell] = useState(draft?.retell ?? false)
   const [idea, setIdea] = useState(draft?.idea ?? '')
-  const [kind, setKind] = useState<BookKind>(draft?.kind ?? 'prose')
+  const [kind, setKind] = useState<StoryKind>(draft?.kind ?? 'prose')
   const [length, setLength] = useState<StoryLength>(draft?.length ?? 'short')
   // An exact page count, when the three buttons are not what somebody wants.
   const [exact, setExact] = useState(draft?.exact ?? false)
@@ -122,7 +140,7 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
         onChapter: (id, chapter, pages) => addStoryChapter(id, chapter, pages),
       }, controller.signal, named, retell, exact ? clampPages(wantPages) : undefined)
 
-      if (kind === 'graphic' && draw && !controller.signal.aborted) {
+      if (kind !== 'prose' && draw && !controller.signal.aborted) {
         setProgress({ done: 1, total: 1, label: 'Drawing the pictures…' })
         // Read the book back from the store: it now holds every chapter.
         const written = useStore.getState().books.find((b) => b.id === bookId)
@@ -300,7 +318,7 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
 
         <div>
           <span className="label">What should it be?</span>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             {KINDS.map((option) => {
               const Icon = option.icon
               return (
@@ -314,7 +332,11 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
                       ? 'border-accent bg-accent-soft/60'
                       : 'border-rule hover:border-rule-strong hover:bg-paper-sunk',
                   )}
-                  onClick={() => setKind(option.id)}
+                  onClick={() => {
+                    setKind(option.id)
+                    // A picture book wants the painted look, not comic ink.
+                    if (option.id === 'picture') setStyle('storybook')
+                  }}
                 >
                   <Icon className="h-4 w-4 text-accent-deep" />
                   <span className="mt-1 block text-sm font-semibold text-ink">{option.name}</span>
@@ -415,7 +437,7 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
           </p>
         )}
 
-        {kind === 'graphic' && (
+        {kind !== 'prose' && (
           <div className="rounded-lg border border-rule bg-paper-sunk/50 p-3">
             <label className="flex items-start gap-2">
               <input

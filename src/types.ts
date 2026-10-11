@@ -64,6 +64,11 @@ export interface WritingPlan {
   retell: boolean
   audience: string
   length: 'short' | 'medium' | 'long'
+  /**
+   * What it was written as. A picture book is kept as a graphic book, so
+   * without this, carrying one on would write comic pages into it.
+   */
+  form?: 'prose' | 'graphic' | 'picture'
   /** The chapters the book is being written from, in order. */
   chapters: { title: string; summary: string }[]
   /** Who is in it, so a picture drawn in chapter twenty matches chapter one. */

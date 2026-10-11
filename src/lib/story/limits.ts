@@ -20,7 +20,9 @@ export const STORY_AUDIENCES = ['children', 'middle', 'teen', 'adult'] as const
  * to happen without a word being said. It needs the page count to say on the
  * button what you are about to get.
  */
-export const SHAPES: Record<'prose' | 'graphic', Record<'short' | 'medium' | 'long', {
+export type ShapeKind = 'prose' | 'graphic' | 'picture'
+
+export const SHAPES: Record<ShapeKind, Record<'short' | 'medium' | 'long', {
   chapters: number
   pages: number
 }>> = {
@@ -34,13 +36,18 @@ export const SHAPES: Record<'prose' | 'graphic', Record<'short' | 'medium' | 'lo
     medium: { chapters: 16, pages: 4 },
     long: { chapters: 24, pages: 5 },
   },
+  picture: {
+    short: { chapters: 6, pages: 4 },
+    medium: { chapters: 8, pages: 4 },
+    long: { chapters: 12, pages: 4 },
+  },
 }
 
 /**
  * How many pages a chapter runs to when the length was given as a page count
  * rather than chosen by name.
  */
-export const PER_CHAPTER: Record<'prose' | 'graphic', number> = { prose: 5, graphic: 4 }
+export const PER_CHAPTER: Record<ShapeKind, number> = { prose: 5, graphic: 4, picture: 4 }
 
 /** The range a page count may be asked in. */
 export const MIN_PAGES = 4
@@ -52,7 +59,7 @@ export function clampPages(pages: number): number {
 }
 
 /** The shape of a book asked for as an exact number of pages. */
-export function shapeForPages(kind: 'prose' | 'graphic', pages: number): {
+export function shapeForPages(kind: ShapeKind, pages: number): {
   chapters: number
   pages: number
 } {
@@ -61,7 +68,7 @@ export function shapeForPages(kind: 'prose' | 'graphic', pages: number): {
 }
 
 export function chaptersIn(
-  kind: 'prose' | 'graphic', length: 'short' | 'medium' | 'long', pages?: number,
+  kind: ShapeKind, length: 'short' | 'medium' | 'long', pages?: number,
 ): number {
   if (pages) return shapeForPages(kind, pages).chapters
   return SHAPES[kind][length].chapters
@@ -69,7 +76,7 @@ export function chaptersIn(
 
 /** How many pages that comes to — what the length buttons offer. */
 export function pagesIn(
-  kind: 'prose' | 'graphic', length: 'short' | 'medium' | 'long', pages?: number,
+  kind: ShapeKind, length: 'short' | 'medium' | 'long', pages?: number,
 ): number {
   const shape = pages ? shapeForPages(kind, pages) : SHAPES[kind][length]
   return shape.chapters * shape.pages

@@ -1,6 +1,5 @@
 import type { ArtStyle } from '@/lib/graphic/image-prompt'
-import type { BookKind } from '@/types'
-import type { StoryLength } from '@/lib/story/story'
+import type { StoryKind, StoryLength } from '@/lib/story/story'
 
 /** Everything typed into the story form, kept so closing it loses nothing. */
 export interface StoryDraft {
@@ -8,7 +7,7 @@ export interface StoryDraft {
   show: string
   retell: boolean
   idea: string
-  kind: BookKind
+  kind: StoryKind
   length: StoryLength
   audience: string
   draw: boolean

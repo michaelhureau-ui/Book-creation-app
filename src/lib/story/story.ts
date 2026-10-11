@@ -6,7 +6,17 @@ import { createBalloon, createPanel } from '@/lib/graphic/pages'
 import { aimBalloons, type SpeakerSide } from '@/lib/graphic/lettering'
 import { LAYOUTS, panelCount } from '@/lib/graphic/layouts'
 
-export type StoryKind = BookKind
+/**
+ * What is being written. A picture book is kept as a graphic book — one panel
+ * to a page with the words underneath — but it is asked for differently, so it
+ * is its own kind here.
+ */
+export type StoryKind = 'prose' | 'graphic' | 'picture'
+
+/** Which kind of book a story of this kind is stored as. */
+export function bookKindOf(kind: StoryKind): BookKind {
+  return kind === 'prose' ? 'prose' : 'graphic'
+}
 export type StoryLength = 'short' | 'medium' | 'long'
 
 export interface OutlineChapter {
@@ -180,12 +190,24 @@ export function placeBalloons(written: WrittenBalloon[]): Balloon[] {
 }
 
 
-export function buildGraphicPage(page: WrittenPage, chapterId: string): Page {
+/**
+ * A picture book's words are read aloud to somebody sitting on your knee, so
+ * they are set wide and large rather than tucked into a comic's balloon.
+ */
+const PICTURE_CAPTION_WIDTH = 0.82
+
+export function buildGraphicPage(
+  page: WrittenPage, chapterId: string, picture = false,
+): Page {
   const frames = panelCount(page.layout)
   const panels: Panel[] = Array.from({ length: frames }, (_, i) => {
     const written = page.panels[i]
     if (!written) return createPanel()
-    return { ...createPanel(), note: written.note, balloons: placeBalloons(written.balloons) }
+    const balloons = placeBalloons(written.balloons).map((balloon) =>
+      (picture && balloon.kind === 'caption'
+        ? { ...balloon, width: PICTURE_CAPTION_WIDTH }
+        : balloon))
+    return { ...createPanel(), note: written.note, balloons }
   })
   return { id: newId(), title: page.title, layout: page.layout, chapterId, panels }
 }
@@ -199,7 +221,7 @@ export function buildProseChapter(title: string, pages: string[]): Chapter {
 
 /** The empty book a story is poured into, before any chapter has been written. */
 export function startBook(outline: Outline, kind: StoryKind): Book {
-  const book = createBook(outline.title || 'Untitled book', '', kind)
+  const book = createBook(outline.title || 'Untitled book', '', bookKindOf(kind))
   book.subtitle = outline.subtitle
   book.chapters = []
   book.pages = []

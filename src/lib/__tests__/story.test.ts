@@ -1,15 +1,15 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  buildGraphicPage, buildProseChapter, layoutForPanels, paragraphsToHtml,
+  bookKindOf, buildGraphicPage, buildProseChapter, layoutForPanels, paragraphsToHtml,
   readGraphicPages, readOutline, readProsePages, startBook,
 } from '@/lib/story/story'
 import {
-  MAX_IDEA_LENGTH, OUTLINE_BATCH as CLIENT_OUTLINE_BATCH, STORY_AUDIENCES, STORY_LENGTHS,
+  MAX_IDEA_LENGTH, OUTLINE_BATCH as CLIENT_OUTLINE_BATCH, pagesIn, STORY_AUDIENCES, STORY_LENGTHS,
 } from '@/lib/story/limits'
 import {
   AUDIENCES, MAX_IDEA_LENGTH as API_MAX_IDEA_LENGTH, OUTLINE_BATCH, SHAPES, buildChapterPrompt,
-  buildOutlinePrompt, chooseGoogleTextModel, cleanIdea, extractGoogleText, parseJsonBody,
-  rankTextModel,
+  buildOutlinePrompt, chooseGoogleTextModel, cleanIdea, extractGoogleText,
+  pagesIn as endpointPagesIn, parseJsonBody, rankTextModel,
 } from '../../../api/generate-story'
 import { checkStoryService } from '@/lib/story/generate'
 import { panelCount } from '@/lib/graphic/layouts'
@@ -292,5 +292,49 @@ describe('checking the story service from the app', () => {
 describe('the batch size the app and the endpoint each use', () => {
   it('keeps the two in step, or the app asks for chapters it will not get', () => {
     expect(CLIENT_OUTLINE_BATCH).toBe(OUTLINE_BATCH)
+  })
+})
+
+describe('a picture book', () => {
+  it('is short, the way picture books are', () => {
+    expect(pagesIn('picture', 'short')).toBe(24)
+    expect(pagesIn('picture', 'medium')).toBe(32)
+    // Never anything like a novel's length.
+    expect(pagesIn('picture', 'long')).toBeLessThan(pagesIn('graphic', 'short') * 3)
+  })
+
+  it('is kept as a graphic book, because that is what it is', () => {
+    expect(bookKindOf('picture')).toBe('graphic')
+    expect(bookKindOf('graphic')).toBe('graphic')
+    expect(bookKindOf('prose')).toBe('prose')
+  })
+
+  it('gives each page one whole picture', () => {
+    const [page] = readGraphicPages({
+      pages: [{
+        title: 'Page 1',
+        panels: [{
+          art: 'A small bear under a yellow umbrella in the rain.',
+          balloons: [{ kind: 'caption', from: 'off', text: 'It rained all morning.' }],
+        }],
+      }],
+    })
+    expect(page.layout).toBe('splash')
+    expect(page.panels[0].balloons[0].balloon.kind).toBe('caption')
+  })
+
+  it('is asked for as a picture book, not as a comic', () => {
+    const prompt = buildChapterPrompt('a bear in the rain', 'picture', 'short', 'children', {
+      title: 'Rain', chapters: [{ title: 'One', summary: 'It rains.' }],
+    }, 0)
+    expect(prompt).toMatch(/one picture to a page/)
+    expect(prompt).toMatch(/five-year-old/)
+    expect(prompt).not.toMatch(/3 or 4 panels/)
+  })
+
+  it('mirrors the shapes the endpoint uses, exactly', () => {
+    for (const length of ['short', 'medium', 'long'] as const) {
+      expect(pagesIn('picture', length)).toBe(endpointPagesIn('picture', length))
+    }
   })
 })

@@ -128,7 +128,7 @@ export async function writeStory(
   const wanted = chaptersIn(kind, length, pages)
   const book = startBook(outline, kind)
   book.writing = {
-    idea, show, retell, audience, length, wanted, pages,
+    idea, show, retell, audience, length, wanted, pages, form: kind,
     chapters: outline.chapters,
     cast: outline.cast,
   }
@@ -201,9 +201,10 @@ async function writeChapters(
       )
     }
 
-    if (kind === 'graphic') {
+    if (kind === 'graphic' || kind === 'picture') {
       const chapter = buildProseChapter(planned.title, [''])
-      const pages = readGraphicPages(reply.chapter).map((page) => buildGraphicPage(page, chapter.id))
+      const pages = readGraphicPages(reply.chapter)
+        .map((page) => buildGraphicPage(page, chapter.id, kind === 'picture'))
       hooks.onChapter(bookId, chapter, pages)
     } else {
       hooks.onChapter(bookId, buildProseChapter(planned.title, readProsePages(reply.chapter)), [])
@@ -234,7 +235,9 @@ export async function continueStory(
   /** Overrides for a book with nothing of its own to go on. */
   fallback?: { idea?: string; length?: StoryLength; audience?: string },
 ): Promise<{ bookId: string; chapters: number }> {
-  const kind: StoryKind = book.kind
+  // A picture book is stored as a graphic book, so what it was written as has
+  // to be remembered, or carrying it on would turn it into a comic.
+  const kind: StoryKind = book.writing?.form ?? book.kind
   const plan = book.writing
   const length = fallback?.length ?? plan?.length ?? 'medium'
   const idea = (fallback?.idea ?? plan?.idea ?? book.description ?? '').trim() || book.title

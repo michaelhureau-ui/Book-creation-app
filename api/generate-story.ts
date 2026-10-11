@@ -32,7 +32,7 @@ export interface StoryError {
   message: string
 }
 
-export type StoryKind = 'prose' | 'graphic'
+export type StoryKind = 'prose' | 'graphic' | 'picture'
 export type StoryLength = 'short' | 'medium' | 'long'
 
 /**
@@ -57,6 +57,14 @@ export const SHAPES: Record<StoryKind, Record<StoryLength, { chapters: number; p
     short: { chapters: 6, pages: 4 },
     medium: { chapters: 16, pages: 4 },
     long: { chapters: 24, pages: 5 },
+  },
+  // A picture book is one picture to a page and a line or two beneath it, and
+  // it is short: twenty-four pages is the standard, thirty-two is generous,
+  // and anything past about forty-eight stops being a picture book.
+  picture: {
+    short: { chapters: 6, pages: 4 },
+    medium: { chapters: 8, pages: 4 },
+    long: { chapters: 12, pages: 4 },
   },
 }
 
@@ -170,7 +178,9 @@ export function buildOutlinePrompt(
   const named = cleanShow(show ?? '')
   if (!cleaned && !named) throw new Error('Say what the story is about.')
   const shape = shapeOf(kind, length, want)
-  const form = kind === 'graphic' ? 'graphic novel' : 'novel'
+  const form = kind === 'graphic' ? 'graphic novel'
+    : kind === 'picture' ? 'picture book for young children'
+      : 'novel'
   const done = sofar.length
   const asking = Math.min(OUTLINE_BATCH, shape.chapters - done)
 
@@ -251,6 +261,32 @@ export function buildChapterPrompt(
     `Now write chapter ${index + 1}, "${here.title ?? ''}", and only that chapter.`,
     'Do not retell the other chapters, and do not repeat the chapter title in the text.',
   ].filter(Boolean).join(' ')
+
+  if (kind === 'picture') {
+    return [
+      story,
+      `Lay it out as ${shape.pages} pages, one picture to a page.`,
+      'This is a picture book: the picture carries the story and the words sit under it.',
+      'For every page write one panel. Its "art" is one sentence describing the',
+      'picture, as a drawing brief — warm, specific, and with no words or',
+      'lettering in the picture itself.',
+      cast.length > 0
+        ? 'Every picture is drawn separately by someone who has not read the book and'
+          + ' does not know these characters, so inside "art" refer to each character'
+          + ' only by their description from the cast — never by name. Repeat the'
+          + ' description every time.'
+        : 'Inside "art" describe who is in the picture and what they look like every'
+          + ' time, since each page is drawn separately.',
+      'Give the page one balloon of kind "caption": one or two short sentences of',
+      'the story, in plain words a five-year-old would follow, read aloud well, and',
+      'under 30 words. If somebody in the picture says something out loud, you may',
+      'add one "speech" balloon of under 12 words with its "speaker" and a "from"',
+      'of left, middle or right. Never more than two balloons on a page.',
+      'Reply with JSON only, in exactly this shape:',
+      '{"pages":[{"title":"","panels":[{"art":"","balloons":'
+      + '[{"kind":"caption","from":"off","text":""}]}]}]}',
+    ].join(' ')
+  }
 
   if (kind === 'graphic') {
     return [
@@ -1049,7 +1085,8 @@ export default async function handler(req: Req, res: Res): Promise<void> {
       const probeLength: StoryLength =
         req.url?.includes('length=long') ? 'long'
           : req.url?.includes('length=medium') ? 'medium' : 'short'
-      const probeKind: StoryKind = req.url?.includes('kind=graphic') ? 'graphic' : 'prose'
+      const probeKind: StoryKind = req.url?.includes('kind=graphic') ? 'graphic'
+        : req.url?.includes('kind=picture') ? 'picture' : 'prose'
       // A chapter is the call that actually times out, so the probe has to be
       // able to ask for one rather than only for a plan.
       const probeChapter = req.url?.includes('stage=chapter')
@@ -1172,7 +1209,8 @@ export default async function handler(req: Req, res: Res): Promise<void> {
   }
 
   const idea = typeof payload.idea === 'string' ? payload.idea : ''
-  const kind: StoryKind = payload.kind === 'graphic' ? 'graphic' : 'prose'
+  const kind: StoryKind = payload.kind === 'graphic' ? 'graphic'
+    : payload.kind === 'picture' ? 'picture' : 'prose'
   const length: StoryLength =
     payload.length === 'short' || payload.length === 'long' ? payload.length : 'medium'
   const audience = typeof payload.audience === 'string' ? payload.audience : 'middle'
