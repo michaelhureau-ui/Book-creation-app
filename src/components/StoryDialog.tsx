@@ -8,7 +8,9 @@ import {
   checkStoryService, drawPanels, NOT_CONFIGURED_HELP, QUOTA_HELP, STALE_BUILD_HELP, StoryFailed,
   writeStory, type DrawingProgress, type ServiceCheck, type StoryProgress,
 } from '@/lib/story/generate'
-import { MAX_IDEA_LENGTH, MAX_SHOW_LENGTH, pagesIn } from '@/lib/story/limits'
+import {
+  clampPages, MAX_IDEA_LENGTH, MAX_PAGES, MAX_SHOW_LENGTH, MIN_PAGES, pagesIn, shapeForPages,
+} from '@/lib/story/limits'
 import { clearDraft, draftHasWriting, loadDraft, saveDraft } from '@/lib/story/draft'
 import { STYLES, type ArtStyle } from '@/lib/graphic/image-prompt'
 import type { BookKind } from '@/types'
@@ -67,6 +69,9 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
   const [idea, setIdea] = useState(draft?.idea ?? '')
   const [kind, setKind] = useState<BookKind>(draft?.kind ?? 'prose')
   const [length, setLength] = useState<StoryLength>(draft?.length ?? 'short')
+  // An exact page count, when the three buttons are not what somebody wants.
+  const [exact, setExact] = useState(draft?.exact ?? false)
+  const [wantPages, setWantPages] = useState(draft?.wantPages ?? 48)
   const [audience, setAudience] = useState(draft?.audience ?? 'middle')
   const [draw, setDraw] = useState(draft?.draw ?? false)
   const [style, setStyle] = useState<ArtStyle>(draft?.style ?? 'color')
@@ -83,8 +88,8 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
   // Kept as it is typed, so closing the form — or the tab, or the laptop lid —
   // costs nothing.
   useEffect(() => {
-    saveDraft({ source, show, retell, idea, kind, length, audience, draw, style })
-  }, [source, show, retell, idea, kind, length, audience, draw, style])
+    saveDraft({ source, show, retell, idea, kind, length, audience, draw, style, exact, wantPages })
+  }, [source, show, retell, idea, kind, length, audience, draw, style, exact, wantPages])
 
   const busy = progress !== null
   const chosen = LENGTHS.find((l) => l.id === length) ?? LENGTHS[0]
@@ -115,7 +120,7 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
           return id
         },
         onChapter: (id, chapter, pages) => addStoryChapter(id, chapter, pages),
-      }, controller.signal, named, retell)
+      }, controller.signal, named, retell, exact ? clampPages(wantPages) : undefined)
 
       if (kind === 'graphic' && draw && !controller.signal.aborted) {
         setProgress({ done: 1, total: 1, label: 'Drawing the pictures…' })
@@ -323,7 +328,7 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
         <div className="grid grid-cols-2 gap-3">
           <div>
             <span className="label">How long?</span>
-            <div className="grid grid-cols-3 gap-1">
+            <div className="grid grid-cols-4 gap-1">
               {LENGTHS.map((option) => (
                 <button
                   key={option.id}
@@ -331,11 +336,11 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
                   disabled={busy}
                   className={clsx(
                     'rounded-md border px-1 py-1.5 text-xs leading-tight transition-colors disabled:opacity-50',
-                    length === option.id
+                    !exact && length === option.id
                       ? 'border-accent bg-accent-soft/60 font-semibold text-accent-deep'
                       : 'border-rule text-ink-soft hover:bg-paper-sunk',
                   )}
-                  onClick={() => setLength(option.id)}
+                  onClick={() => { setExact(false); setLength(option.id) }}
                 >
                   {option.label}
                   <span className="mt-0.5 block text-[0.65rem] font-normal opacity-80">
@@ -348,7 +353,40 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
                   )}
                 </button>
               ))}
+              <button
+                type="button"
+                disabled={busy}
+                className={clsx(
+                  'rounded-md border px-1 py-1.5 text-xs leading-tight transition-colors disabled:opacity-50',
+                  exact
+                    ? 'border-accent bg-accent-soft/60 font-semibold text-accent-deep'
+                    : 'border-rule text-ink-soft hover:bg-paper-sunk',
+                )}
+                onClick={() => setExact(true)}
+              >
+                Exactly
+                <span className="mt-0.5 block text-[0.65rem] font-normal opacity-80">
+                  you say
+                </span>
+              </button>
             </div>
+            {exact && (
+              <label className="mt-2 flex items-center gap-2 text-xs text-ink-soft">
+                <input
+                  type="number"
+                  className="field w-20 py-1 text-sm"
+                  min={MIN_PAGES}
+                  max={MAX_PAGES}
+                  step={1}
+                  value={wantPages}
+                  disabled={busy}
+                  onChange={(e) => setWantPages(Number(e.target.value))}
+                  onBlur={() => setWantPages(clampPages(wantPages))}
+                />
+                pages, in {shapeForPages(kind, wantPages).chapters} chapters
+                {' of '}{shapeForPages(kind, wantPages).pages}
+              </label>
+            )}
           </div>
           <div>
             <label className="label" htmlFor="story-audience">Who is it for?</label>
@@ -368,7 +406,11 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
 
         {!busy && (
           <p className="text-xs text-ink-faint">
-            {pagesIn(kind, chosen.id)} pages takes {chosen.wait}. Each chapter is kept as it is written, so you
+            {exact
+              ? `${pagesIn(kind, length, clampPages(wantPages))} pages is `
+                + `${shapeForPages(kind, wantPages).chapters} chapters, and takes a while.`
+              : `${pagesIn(kind, chosen.id)} pages takes ${chosen.wait}.`}
+            {' '}Each chapter is kept as it is written, so you
             can stop early and still have a book.
           </p>
         )}

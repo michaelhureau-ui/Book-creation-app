@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { SHAPES, looksLikeWrongModel, refusalAdvice } from '../../../api/generate-story'
+import {
+  MAX_CHAPTER_PAGES, MAX_CHAPTERS, readWant, SHAPES, looksLikeWrongModel, refusalAdvice,
+} from '../../../api/generate-story'
 import { StoryFailed, writeStory } from '@/lib/story/generate'
-import { chaptersIn, pagesIn } from '@/lib/story/limits'
+import {
+  chaptersIn, clampPages, MAX_PAGES, MIN_PAGES, pagesIn, shapeForPages,
+} from '@/lib/story/limits'
 
 /**
  * A 200-page book came back 5 pages long with nothing said about it. Three
@@ -165,5 +169,53 @@ describe('planning a long book in batches', () => {
     const err = await writing
     expect((err as Error).message).toMatch(/only came back with 10 chapters instead of 40/)
     expect(h.saved).toHaveLength(10)
+  })
+})
+
+describe('a book of exactly the length somebody asks for', () => {
+  it('turns a page count into chapters of a sensible size', () => {
+    expect(shapeForPages('prose', 200)).toEqual({ chapters: 40, pages: 5 })
+    expect(shapeForPages('graphic', 48)).toEqual({ chapters: 12, pages: 4 })
+    // A number that does not divide evenly rounds up rather than coming out short.
+    expect(pagesIn('graphic', 'short', 50)).toBeGreaterThanOrEqual(50)
+  })
+
+  it('keeps a typed number inside what can actually be written', () => {
+    expect(clampPages(0)).toBe(MIN_PAGES)
+    expect(clampPages(99999)).toBe(MAX_PAGES)
+    expect(clampPages(Number.NaN)).toBe(MIN_PAGES)
+    expect(clampPages(96)).toBe(96)
+  })
+
+  it('asks the service for that shape, and keeps asking until the plan is that long', async () => {
+    const asked: Record<string, unknown>[] = []
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: { body: string }) => {
+      const body = JSON.parse(init.body) as Record<string, unknown>
+      asked.push(body)
+      if (body.stage === 'outline') {
+        const done = Array.isArray(body.sofar) ? body.sofar.length : 0
+        return reply(plan(Math.min(10, 15 - done)))
+      }
+      return reply({ chapter: CHAPTER })
+    }))
+
+    const h = hooks()
+    // 72 pages of prose is 15 chapters of 5.
+    const out = await writeStory('a lighthouse', 'prose', 'short', 'middle', h, undefined, '', false, 72)
+    expect(out.chapters).toBe(15)
+
+    const want = asked.map((a) => a.want).filter(Boolean)
+    expect(want.length).toBe(asked.length)
+    expect(want[0]).toEqual({ chapters: 15, pages: 5 })
+  })
+
+  it('mirrors the endpoint, which also takes a shape it is given', () => {
+    expect(readWant({ chapters: 15, pages: 5 })).toEqual({ chapters: 15, pages: 5 })
+    // Nonsense is refused rather than making a book of no pages.
+    expect(readWant({ chapters: 0, pages: 5 })).toBeUndefined()
+    expect(readWant({})).toBeUndefined()
+    expect(readWant({ chapters: 9999, pages: 9999 })).toEqual({
+      chapters: MAX_CHAPTERS, pages: MAX_CHAPTER_PAGES,
+    })
   })
 })

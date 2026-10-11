@@ -9,6 +9,7 @@ import {
 } from '@/lib/book'
 import { applyLayout, createBalloon, createPage, orphanedAssets, remapAssets } from '@/lib/graphic/pages'
 import { duplicateAssets, removeAsset } from '@/lib/graphic/assets'
+import { repairBook } from '@/lib/repair'
 import * as db from '@/lib/db'
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
@@ -39,6 +40,8 @@ interface State {
 
   addBook: (title?: string, author?: string, kind?: BookKind) => Promise<string>
   copyBook: (id: string) => Promise<void>
+  /** A copy of a book with whatever was broken in it put right. */
+  repairCopy: (id: string) => Promise<{ id: string; notes: string[] } | null>
   removeBook: (id: string) => Promise<void>
   importBook: (book: Book) => Promise<string>
 
@@ -190,6 +193,27 @@ export const useStore = create<State>((set, get) => {
       }
       set({ books: [copy, ...get().books] })
       await db.saveBook(copy).catch(() => set({ saveState: 'error' }))
+    },
+
+    repairCopy: async (id) => {
+      const source = get().books.find((b) => b.id === id)
+      if (!source) return null
+      // Which artwork really exists, so a panel pointing at a picture that is
+      // gone can be emptied and drawn again rather than staying blank forever.
+      const rows = await db.loadAssetsForBook(id).catch(() => [])
+      const { book: mended, notes } = repairBook(source, new Set(rows.map((r) => r.id)))
+
+      const copy: Book = {
+        ...duplicateBook(mended),
+        title: `${source.title || 'Untitled book'} (repaired)`,
+      }
+      if (mended.pages.length > 0) {
+        const remap = await duplicateAssets(source.id, copy.id).catch(() => new Map<string, string>())
+        copy.pages = remapAssets(copy.pages, remap)
+      }
+      set({ books: [copy, ...get().books] })
+      await db.saveBook(copy).catch(() => set({ saveState: 'error' }))
+      return { id: copy.id, notes }
     },
 
     removeBook: async (id) => {

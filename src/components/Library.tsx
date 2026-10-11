@@ -92,7 +92,12 @@ function NewBookDialog({ onClose }: { onClose: () => void }) {
 }
 
 function BookCard(
-  { book, onDelete, onCarryOn }: { book: Book; onDelete: () => void; onCarryOn: () => void },
+  { book, onDelete, onCarryOn, onRepair }: {
+    book: Book
+    onDelete: () => void
+    onCarryOn: () => void
+    onRepair: () => void
+  },
 ) {
   const openBook = useStore((s) => s.openBook)
   const copyBook = useStore((s) => s.copyBook)
@@ -148,6 +153,14 @@ function BookCard(
           <Icons.Copy className="h-3.5 w-3.5" />
         </button>
         <button
+          className="rounded-md bg-paper-raised/95 p-1.5 text-ink-soft shadow-sm hover:text-ink"
+          title="Copy and repair"
+          aria-label={`Copy and repair ${book.title}`}
+          onClick={onRepair}
+        >
+          <Icons.Sparkle className="h-3.5 w-3.5" />
+        </button>
+        <button
           className="rounded-md bg-paper-raised/95 p-1.5 text-red-700 shadow-sm hover:bg-red-50"
           title="Delete"
           aria-label={`Delete ${book.title}`}
@@ -166,12 +179,15 @@ export function Library() {
   const loadError = useStore((s) => s.loadError)
   const removeBook = useStore((s) => s.removeBook)
   const importBook = useStore((s) => s.importBook)
+  const repairCopy = useStore((s) => s.repairCopy)
 
   const [creating, setCreating] = useState(false)
   const [writing, setWriting] = useState(false)
   const [carryingOn, setCarryingOn] = useState<Book | null>(null)
   const [query, setQuery] = useState('')
   const [pendingDelete, setPendingDelete] = useState<Book | null>(null)
+  const [repaired, setRepaired] = useState<{ title: string; notes: string[] } | null>(null)
+  const [repairing, setRepairing] = useState<string | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
 
@@ -301,6 +317,15 @@ export function Library() {
               book={book}
               onDelete={() => setPendingDelete(book)}
               onCarryOn={() => setCarryingOn(book)}
+              onRepair={() => {
+                if (repairing) return
+                setRepairing(book.id)
+                void repairCopy(book.id)
+                  .then((done) => {
+                    if (done) setRepaired({ title: book.title || 'Untitled book', notes: done.notes })
+                  })
+                  .finally(() => setRepairing(null))
+              }}
             />
           ))}
         </div>
@@ -314,6 +339,31 @@ export function Library() {
           onClose={() => setCarryingOn(null)}
         />
       )}
+      {repaired && (
+        <Modal
+          title="Copied and repaired"
+          subtitle={`“${repaired.title}” is copied, and the copy is in your library.`}
+          onClose={() => setRepaired(null)}
+          footer={<button className="btn btn-primary" onClick={() => setRepaired(null)}>Done</button>}
+        >
+          <div className="space-y-2 text-sm text-ink-soft">
+            {repaired.notes.length === 0 ? (
+              <p>
+                Nothing was wrong with it. The copy is an exact one, with its own artwork, so you
+                can work on it without touching the original.
+              </p>
+            ) : (
+              <>
+                <p>These were put right in the copy. The book you started from is untouched.</p>
+                <ul className="list-disc space-y-1 pl-5 text-xs">
+                  {repaired.notes.map((note) => <li key={note}>{note}</li>)}
+                </ul>
+              </>
+            )}
+          </div>
+        </Modal>
+      )}
+
       {pendingDelete && (
         <ConfirmDialog
           title={`Delete “${pendingDelete.title || 'Untitled book'}”?`}

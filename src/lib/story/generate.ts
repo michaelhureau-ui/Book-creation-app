@@ -7,7 +7,9 @@ import {
   buildGraphicPage, buildProseChapter, planFromWritten, readGraphicPages, readOutline,
   readProsePages, startBook, type Outline, type StoryKind, type StoryLength,
 } from '@/lib/story/story'
-import { chaptersIn, OUTLINE_BATCH, pagesIn, SHAPES } from '@/lib/story/limits'
+import {
+  chaptersIn, OUTLINE_BATCH, pagesIn, shapeForPages, SHAPES,
+} from '@/lib/story/limits'
 
 export type StoryErrorCode =
   | 'not_configured' | 'empty_idea' | 'rejected' | 'rate_limited' | 'quota'
@@ -38,6 +40,8 @@ interface Ask {
   retell?: boolean
   outline?: Outline
   index?: number
+  /** The exact shape asked for, when it was given as a number of pages. */
+  want?: { chapters: number; pages: number }
 }
 
 async function ask(body: Ask, signal?: AbortSignal): Promise<Record<string, unknown>> {
@@ -111,24 +115,27 @@ export async function writeStory(
   signal?: AbortSignal,
   show = '',
   retell = false,
+  /** An exact number of pages, instead of one of the three named lengths. */
+  pages?: number,
 ): Promise<{ bookId: string; chapters: number }> {
   if (!idea.trim() && !show.trim()) {
     throw new StoryFailed('empty_idea', 'Say what the story should be about, or name a show or film.')
   }
 
-  const outline = await planBook(idea, kind, length, audience, show, retell, hooks, signal)
+  const want = pages ? shapeForPages(kind, pages) : undefined
+  const outline = await planBook(idea, kind, length, audience, show, retell, hooks, signal, want)
 
-  const wanted = chaptersIn(kind, length)
+  const wanted = chaptersIn(kind, length, pages)
   const book = startBook(outline, kind)
   book.writing = {
-    idea, show, retell, audience, length, wanted,
+    idea, show, retell, audience, length, wanted, pages,
     chapters: outline.chapters,
     cast: outline.cast,
   }
   const bookId = await hooks.onStart(book)
 
   const written = await writeChapters(
-    { idea, kind, length, audience, show, retell, outline }, bookId, 0, hooks, signal)
+    { idea, kind, length, audience, show, retell, outline, want }, bookId, 0, hooks, signal)
   const total = outline.chapters.length
   // A plan shorter than the book asked for makes a shorter book, and saying
   // nothing about it leaves someone counting pages and wondering.
@@ -137,7 +144,8 @@ export async function writeStory(
       'unreadable',
       `The plan for this book only came back with ${total} `
       + `${total === 1 ? 'chapter' : 'chapters'} instead of ${wanted}, so it is `
-      + `${total * SHAPES[kind][length].pages} pages rather than ${pagesIn(kind, length)}. `
+      + `${total * (want?.pages ?? SHAPES[kind][length].pages)} pages rather than `
+      + `${pagesIn(kind, length, pages)}. `
       + 'Everything written is saved. '
       + 'Try again — the next plan is usually the right length.',
     )
@@ -153,6 +161,8 @@ interface Brief {
   show: string
   retell: boolean
   outline: Outline
+  /** The exact shape asked for, when it was not one of the named lengths. */
+  want?: { chapters: number; pages: number }
 }
 
 /**
@@ -164,7 +174,7 @@ interface Brief {
 async function writeChapters(
   brief: Brief, bookId: string, from: number, hooks: StoryHooks, signal?: AbortSignal,
 ): Promise<number> {
-  const { idea, kind, length, audience, show, retell, outline } = brief
+  const { idea, kind, length, audience, show, retell, outline, want } = brief
   const total = outline.chapters.length
   let written = 0
 
@@ -176,7 +186,9 @@ async function writeChapters(
     let reply: Record<string, unknown>
     try {
       reply = await askWithRetries(
-        { stage: 'chapter', idea, kind, length, audience, show, retell, outline, index: i }, signal)
+        {
+          stage: 'chapter', idea, kind, length, audience, show, retell, outline, index: i, want,
+        }, signal)
     } catch (err) {
       if (written === 0 || signal?.aborted) throw err
       // The chapters so far are saved, but stopping quietly is how a book
@@ -227,7 +239,9 @@ export async function continueStory(
   const length = fallback?.length ?? plan?.length ?? 'medium'
   const idea = (fallback?.idea ?? plan?.idea ?? book.description ?? '').trim() || book.title
   const audience = fallback?.audience ?? plan?.audience ?? 'middle'
-  const wanted = Math.max(chaptersIn(kind, length), book.chapters.length)
+  const askedPages = plan?.pages
+  const want = askedPages ? shapeForPages(kind, askedPages) : undefined
+  const wanted = Math.max(chaptersIn(kind, length, askedPages), book.chapters.length)
   const done = book.chapters.length
 
   if (done >= wanted) {
@@ -249,12 +263,18 @@ export async function continueStory(
 
   // The plan may stop where the writing stopped; the rest is asked for now.
   const extended = await extendPlan(
-    { idea, kind, length, audience, show: plan?.show ?? '', retell: plan?.retell ?? false, outline },
+    {
+      idea, kind, length, audience, show: plan?.show ?? '', retell: plan?.retell ?? false,
+      outline, want,
+    },
     wanted, hooks, signal,
   )
 
   const written = await writeChapters(
-    { idea, kind, length, audience, show: plan?.show ?? '', retell: plan?.retell ?? false, outline: extended },
+    {
+      idea, kind, length, audience, show: plan?.show ?? '', retell: plan?.retell ?? false,
+      outline: extended, want,
+    },
     book.id, done, hooks, signal,
   )
   return { bookId: book.id, chapters: written }
@@ -272,13 +292,14 @@ export async function continueStory(
 async function planBook(
   idea: string, kind: StoryKind, length: StoryLength, audience: string,
   show: string, retell: boolean, hooks: StoryHooks, signal?: AbortSignal,
+  want?: { chapters: number; pages: number },
 ): Promise<Outline> {
   hooks.onProgress({ done: 0, total: 1, label: 'Planning the book…' })
-  const first = readOutline(
-    (await askWithRetries({ stage: 'outline', idea, kind, length, audience, show, retell }, signal)).outline)
+  const first = readOutline((await askWithRetries(
+    { stage: 'outline', idea, kind, length, audience, show, retell, want }, signal)).outline)
   return extendPlan(
-    { idea, kind, length, audience, show, retell, outline: first },
-    chaptersIn(kind, length), hooks, signal,
+    { idea, kind, length, audience, show, retell, outline: first, want },
+    want?.chapters ?? chaptersIn(kind, length), hooks, signal,
   )
 }
 
@@ -291,7 +312,7 @@ async function planBook(
 async function extendPlan(
   brief: Brief, wanted: number, hooks: StoryHooks, signal?: AbortSignal,
 ): Promise<Outline> {
-  const { idea, kind, length, audience, show, retell, outline } = brief
+  const { idea, kind, length, audience, show, retell, outline, want } = brief
   const chapters = [...outline.chapters]
 
   while (chapters.length < wanted) {
@@ -305,7 +326,7 @@ async function extendPlan(
     let more: Outline
     try {
       more = readOutline((await askWithRetries({
-        stage: 'outline', idea, kind, length, audience, show, retell,
+        stage: 'outline', idea, kind, length, audience, show, retell, want,
         sofar: chapters, title: outline.title,
       }, signal)).outline)
     } catch {

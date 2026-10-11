@@ -36,13 +36,42 @@ export const SHAPES: Record<'prose' | 'graphic', Record<'short' | 'medium' | 'lo
   },
 }
 
-export function chaptersIn(kind: 'prose' | 'graphic', length: 'short' | 'medium' | 'long'): number {
+/**
+ * How many pages a chapter runs to when the length was given as a page count
+ * rather than chosen by name.
+ */
+export const PER_CHAPTER: Record<'prose' | 'graphic', number> = { prose: 5, graphic: 4 }
+
+/** The range a page count may be asked in. */
+export const MIN_PAGES = 4
+export const MAX_PAGES = 320
+
+export function clampPages(pages: number): number {
+  if (!Number.isFinite(pages)) return MIN_PAGES
+  return Math.min(MAX_PAGES, Math.max(MIN_PAGES, Math.round(pages)))
+}
+
+/** The shape of a book asked for as an exact number of pages. */
+export function shapeForPages(kind: 'prose' | 'graphic', pages: number): {
+  chapters: number
+  pages: number
+} {
+  const per = PER_CHAPTER[kind]
+  return { chapters: Math.max(1, Math.ceil(clampPages(pages) / per)), pages: per }
+}
+
+export function chaptersIn(
+  kind: 'prose' | 'graphic', length: 'short' | 'medium' | 'long', pages?: number,
+): number {
+  if (pages) return shapeForPages(kind, pages).chapters
   return SHAPES[kind][length].chapters
 }
 
 /** How many pages that comes to — what the length buttons offer. */
-export function pagesIn(kind: 'prose' | 'graphic', length: 'short' | 'medium' | 'long'): number {
-  const shape = SHAPES[kind][length]
+export function pagesIn(
+  kind: 'prose' | 'graphic', length: 'short' | 'medium' | 'long', pages?: number,
+): number {
+  const shape = pages ? shapeForPages(kind, pages) : SHAPES[kind][length]
   return shape.chapters * shape.pages
 }
 

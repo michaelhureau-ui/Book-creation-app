@@ -70,6 +70,11 @@ export interface WritingPlan {
   cast: { name: string; look: string }[]
   /** How many chapters the finished book should have. */
   wanted: number
+  /**
+   * The exact number of pages that were asked for, when the length was typed
+   * rather than chosen. Kept so carrying the book on aims at the same size.
+   */
+  pages?: number
 }
 
 /** A book is either prose (chapters of text) or a graphic novel (drawn pages). */

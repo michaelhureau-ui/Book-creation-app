@@ -13,6 +13,9 @@ export interface StoryDraft {
   audience: string
   draw: boolean
   style: ArtStyle
+  /** Length given as an exact number of pages rather than chosen by name. */
+  exact?: boolean
+  wantPages?: number
 }
 
 const KEY = 'bookwright:story-draft'

@@ -114,8 +114,33 @@ function showNote(show: string, retell: boolean): string[] {
   ]
 }
 
-function shapeOf(kind: StoryKind, length: StoryLength): { chapters: number; pages: number } {
-  return SHAPES[kind][length] ?? SHAPES[kind].medium
+export interface Shape { chapters: number; pages: number }
+
+/** The most a book may be asked for in one go, and the least worth asking. */
+export const MAX_CHAPTERS = 80
+export const MAX_CHAPTER_PAGES = 12
+
+/**
+ * A length asked for by name, or a count of pages asked for exactly.
+ *
+ * The three named lengths are what the buttons offer, but somebody who wants a
+ * 96-page book should get 96 pages rather than the nearest button, so the app
+ * may send the shape it wants instead.
+ */
+export function readWant(value: unknown): Shape | undefined {
+  const asked = (value ?? {}) as { chapters?: unknown; pages?: unknown }
+  const chapters = Number(asked.chapters)
+  const pages = Number(asked.pages)
+  if (!Number.isFinite(chapters) || !Number.isFinite(pages)) return undefined
+  if (chapters < 1 || pages < 1) return undefined
+  return {
+    chapters: Math.min(MAX_CHAPTERS, Math.floor(chapters)),
+    pages: Math.min(MAX_CHAPTER_PAGES, Math.floor(pages)),
+  }
+}
+
+function shapeOf(kind: StoryKind, length: StoryLength, want?: Shape): Shape {
+  return want ?? SHAPES[kind][length] ?? SHAPES[kind].medium
 }
 
 /**
@@ -139,11 +164,12 @@ export function buildOutlinePrompt(
   /** Chapters already planned, when this call is continuing an earlier one. */
   sofar: { title?: string; summary?: string }[] = [],
   title = '',
+  want?: Shape,
 ): string {
   const cleaned = cleanIdea(idea)
   const named = cleanShow(show ?? '')
   if (!cleaned && !named) throw new Error('Say what the story is about.')
-  const shape = shapeOf(kind, length)
+  const shape = shapeOf(kind, length, want)
   const form = kind === 'graphic' ? 'graphic novel' : 'novel'
   const done = sofar.length
   const asking = Math.min(OUTLINE_BATCH, shape.chapters - done)
@@ -207,8 +233,9 @@ export function buildChapterPrompt(
   index: number,
   show?: string,
   retell = false,
+  want?: Shape,
 ): string {
-  const shape = shapeOf(kind, length)
+  const shape = shapeOf(kind, length, want)
   const chapters = outline.chapters ?? []
   const here = chapters[index] ?? {}
   const cast = (outline.cast ?? []).filter((c) => c?.name)
@@ -1135,7 +1162,7 @@ export default async function handler(req: Req, res: Res): Promise<void> {
   let payload: {
     stage?: unknown; idea?: unknown; kind?: unknown; length?: unknown
     audience?: unknown; outline?: unknown; index?: unknown; show?: unknown
-    retell?: unknown; sofar?: unknown; title?: unknown
+    retell?: unknown; sofar?: unknown; title?: unknown; want?: unknown
   }
   try {
     payload = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body ?? {}) as never
@@ -1152,6 +1179,8 @@ export default async function handler(req: Req, res: Res): Promise<void> {
   const show = typeof payload.show === 'string' ? payload.show : ''
   const retell = payload.retell === true
   const outlining = payload.stage !== 'chapter'
+  // The exact shape asked for, when it is not one of the three named lengths.
+  const want = readWant(payload.want)
 
   let prompt: string
   try {
@@ -1162,7 +1191,7 @@ export default async function handler(req: Req, res: Res): Promise<void> {
         ? (payload.sofar as { title?: string; summary?: string }[]).slice(0, 200)
         : []
       const planned = typeof payload.title === 'string' ? payload.title : ''
-      prompt = buildOutlinePrompt(idea, kind, length, audience, show, retell, sofar, planned)
+      prompt = buildOutlinePrompt(idea, kind, length, audience, show, retell, sofar, planned, want)
     } else {
       const outline = (payload.outline ?? {}) as {
         title?: string
@@ -1174,7 +1203,7 @@ export default async function handler(req: Req, res: Res): Promise<void> {
         fail(res, 400, { code: 'unreadable', message: 'The plan for this book is missing.' })
         return
       }
-      prompt = buildChapterPrompt(idea, kind, length, audience, outline, index, show, retell)
+      prompt = buildChapterPrompt(idea, kind, length, audience, outline, index, show, retell, want)
     }
   } catch {
     fail(res, 400, { code: 'empty_idea', message: 'Say what the story is about, or name a show or film.' })
