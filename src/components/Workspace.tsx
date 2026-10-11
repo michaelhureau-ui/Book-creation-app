@@ -8,6 +8,7 @@ import { DetailsPanel } from '@/components/DetailsPanel'
 import { ContinueDialog } from '@/components/ContinueDialog'
 import { DrawAllDialog } from '@/components/DrawAllDialog'
 import { FitLetteringDialog } from '@/components/FitLetteringDialog'
+import { LetterDialog } from '@/components/LetterDialog'
 import { Preview } from '@/components/Preview'
 import { ExportDialog } from '@/components/ExportDialog'
 import { PrintView } from '@/components/PrintView'
@@ -50,7 +51,8 @@ export function Workspace() {
   const addChapter = useStore((s) => s.addChapter)
 
   const [panel, setPanel] = useState<
-    'details' | 'preview' | 'export' | 'print' | 'movie' | 'carryOn' | 'drawAll' | 'fit' | null
+    'details' | 'preview' | 'export' | 'print' | 'movie' | 'carryOn' | 'drawAll' | 'fit'
+    | 'letter' | null
   >(null)
   // The comic page size is a view/export setting rather than part of the book,
   // so it lives here and is handed to both the editor and the export dialog.
@@ -144,6 +146,13 @@ export function Workspace() {
               </button>
               <button
                 className="btn btn-outline"
+                onClick={() => setPanel('letter')}
+                title="Write the words from the pictures that are drawn"
+              >
+                <Icons.Quote /> <span className="hidden md:inline">Write words</span>
+              </button>
+              <button
+                className="btn btn-outline"
                 onClick={() => setPanel('fit')}
                 title="Move the lettering off the artwork"
               >
@@ -226,6 +235,9 @@ export function Workspace() {
       {panel === 'details' && <DetailsPanel book={book} onClose={() => setPanel(null)} />}
       {panel === 'carryOn' && <ContinueDialog book={book} onClose={() => setPanel(null)} />}
       {panel === 'drawAll' && <DrawAllDialog book={book} onClose={() => setPanel(null)} />}
+      {panel === 'letter' && (
+        <LetterDialog book={book} trim={trim} onClose={() => setPanel(null)} />
+      )}
       {panel === 'fit' && (
         <FitLetteringDialog book={book} trim={trim} onClose={() => setPanel(null)} />
       )}

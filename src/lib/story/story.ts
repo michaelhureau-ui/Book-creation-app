@@ -133,7 +133,7 @@ export interface WrittenBalloon {
 export interface WrittenPage {
   title: string
   layout: PageLayoutId
-  panels: { note: string; balloons: WrittenBalloon[] }[]
+  panels: { note: string; beat?: string; balloons: WrittenBalloon[] }[]
 }
 
 export function readGraphicPages(raw: unknown): WrittenPage[] {
@@ -141,7 +141,9 @@ export function readGraphicPages(raw: unknown): WrittenPage[] {
   const pages = list(body.pages).map((page, i) => {
     const entry = (page ?? {}) as { title?: unknown; panels?: unknown }
     const panels = list(entry.panels).map((panel) => {
-      const cell = (panel ?? {}) as { art?: unknown; description?: unknown; balloons?: unknown }
+      const cell = (panel ?? {}) as {
+        art?: unknown; description?: unknown; beat?: unknown; balloons?: unknown
+      }
       const balloons = list(cell.balloons)
         .map((b) => {
           const raw = (b ?? {}) as { kind?: unknown; text?: unknown; from?: unknown; speaker?: unknown }
@@ -159,7 +161,11 @@ export function readGraphicPages(raw: unknown): WrittenPage[] {
           return { balloon: { ...createBalloon(kind), text, ...(speaker ? { speaker } : {}) }, from }
         })
         .filter((b): b is WrittenBalloon => b !== null)
-      return { note: str(cell.art) || str(cell.description), balloons }
+      return {
+        note: str(cell.art) || str(cell.description),
+        ...(str(cell.beat) ? { beat: str(cell.beat) } : {}),
+        balloons,
+      }
     })
     return {
       title: str(entry.title, `Page ${i + 1}`),
@@ -207,7 +213,12 @@ export function buildGraphicPage(
       (picture && balloon.kind === 'caption'
         ? { ...balloon, width: PICTURE_CAPTION_WIDTH }
         : balloon))
-    return { ...createPanel(), note: written.note, balloons }
+    return {
+      ...createPanel(),
+      note: written.note,
+      ...(written.beat ? { beat: written.beat } : {}),
+      balloons,
+    }
   })
   return { id: newId(), title: page.title, layout: page.layout, chapterId, panels }
 }

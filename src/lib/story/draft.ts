@@ -15,6 +15,8 @@ export interface StoryDraft {
   /** Length given as an exact number of pages rather than chosen by name. */
   exact?: boolean
   wantPages?: number
+  /** Draw the pictures first and write the words onto them afterwards. */
+  picturesFirst?: boolean
 }
 
 const KEY = 'bookwright:story-draft'

@@ -12,6 +12,7 @@ import {
   clampPages, MAX_IDEA_LENGTH, MAX_PAGES, MAX_SHOW_LENGTH, MIN_PAGES, pagesIn, shapeForPages,
 } from '@/lib/story/limits'
 import { clearDraft, draftHasWriting, loadDraft, saveDraft } from '@/lib/story/draft'
+import { letterBook } from '@/lib/story/letter'
 import { STYLES, type ArtStyle } from '@/lib/graphic/image-prompt'
 import type { StoryKind, StoryLength } from '@/lib/story/story'
 
@@ -73,6 +74,7 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
   const importBook = useStore((s) => s.importBook)
   const addStoryChapter = useStore((s) => s.addStoryChapter)
   const setPanelArt = useStore((s) => s.setPanelArt)
+  const setPanelBalloons = useStore((s) => s.setPanelBalloons)
   const openBook = useStore((s) => s.openBook)
   const books = useStore((s) => s.books)
 
@@ -88,6 +90,9 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
   const [kind, setKind] = useState<StoryKind>(draft?.kind ?? 'prose')
   const [length, setLength] = useState<StoryLength>(draft?.length ?? 'short')
   // An exact page count, when the three buttons are not what somebody wants.
+  // Pictures before words: the pages are drawn from the plan, and the words
+  // are written onto the pictures that come back.
+  const [picturesFirst, setPicturesFirst] = useState(draft?.picturesFirst ?? true)
   const [exact, setExact] = useState(draft?.exact ?? false)
   const [wantPages, setWantPages] = useState(draft?.wantPages ?? 48)
   const [audience, setAudience] = useState(draft?.audience ?? 'middle')
@@ -106,8 +111,14 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
   // Kept as it is typed, so closing the form — or the tab, or the laptop lid —
   // costs nothing.
   useEffect(() => {
-    saveDraft({ source, show, retell, idea, kind, length, audience, draw, style, exact, wantPages })
-  }, [source, show, retell, idea, kind, length, audience, draw, style, exact, wantPages])
+    saveDraft({
+      source, show, retell, idea, kind, length, audience, draw, style, exact, wantPages,
+      picturesFirst,
+    })
+  }, [
+    source, show, retell, idea, kind, length, audience, draw, style, exact, wantPages,
+    picturesFirst,
+  ])
 
   const busy = progress !== null
   const chosen = LENGTHS.find((l) => l.id === length) ?? LENGTHS[0]
@@ -118,6 +129,10 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
     if (startedRef.current) openBook(startedRef.current)
     onClose()
   }
+
+  // Only a drawn book can have its words written onto it, so the order only
+  // applies when the pictures are being made here.
+  const wordsLater = kind !== 'prose' && draw && picturesFirst
 
   const write = async (): Promise<void> => {
     if (busy) return
@@ -138,7 +153,7 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
           return id
         },
         onChapter: (id, chapter, pages) => addStoryChapter(id, chapter, pages),
-      }, controller.signal, named, retell, exact ? clampPages(wantPages) : undefined)
+      }, controller.signal, named, retell, exact ? clampPages(wantPages) : undefined, wordsLater)
 
       if (kind !== 'prose' && draw && !controller.signal.aborted) {
         setProgress({ done: 1, total: 1, label: 'Drawing the pictures…' })
@@ -163,6 +178,32 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
             })
             setProgress(null)
             return
+          }
+
+          // The pictures exist now, so the words can be written onto them.
+          if (wordsLater && !controller.signal.aborted) {
+            const drawnBook = useStore.getState().books.find((b) => b.id === bookId)
+            if (drawnBook) {
+              const lettered = await letterBook(
+                drawnBook,
+                { kind: kind === 'picture' ? 'picture' : 'graphic', trim: 'comic' },
+                {
+                  onProgress: (p) => setProgress({ done: p.page, total: p.pages, label: p.label }),
+                  apply: (pageId, panelId, balloons, band) =>
+                    setPanelBalloons(bookId, pageId, panelId, balloons, band),
+                },
+                controller.signal,
+              )
+              if (lettered.stopped) {
+                setError({
+                  code: 'lettering_stopped',
+                  message: `${lettered.written} balloons were written before it stopped. `
+                    + `${lettered.stopped} Open the book and press “Write the words” to carry on.`,
+                })
+                setProgress(null)
+                return
+              }
+            }
           }
         }
       }
@@ -456,6 +497,30 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
                 </span>
               </span>
             </label>
+            {draw && (
+              <label className="mt-2 flex items-start gap-2">
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={picturesFirst}
+                  disabled={busy}
+                  onChange={(e) => setPicturesFirst(e.target.checked)}
+                />
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium text-ink">
+                    Draw first, then write the words onto the pictures
+                  </span>
+                  <span className="block text-xs text-ink-faint">
+                    The usual order is backwards: the words are written while the panels are
+                    still empty, so they sit where an empty panel suggested and the dialogue
+                    talks about things the picture does not show. This way the page is drawn
+                    first and then looked at, so the words belong to it and every balloon can
+                    point at whoever is speaking. It takes a little longer.
+                  </span>
+                </span>
+              </label>
+            )}
+
             {draw && (
               <select
                 className="field mt-2 py-1.5 text-sm"

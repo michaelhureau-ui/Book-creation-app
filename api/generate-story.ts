@@ -244,6 +244,15 @@ export function buildChapterPrompt(
   show?: string,
   retell = false,
   want?: Shape,
+  /**
+   * Write the pictures only, with no words in them yet.
+   *
+   * The usual order is backwards: the dialogue is written while the panels are
+   * still empty and the pictures are drawn to match it afterwards, so the
+   * balloons sit where a blank panel suggested. Asked for this way, the page is
+   * drawn first and the words are written to the picture that exists.
+   */
+  silent = false,
 ): string {
   const shape = shapeOf(kind, length, want)
   const chapters = outline.chapters ?? []
@@ -261,6 +270,33 @@ export function buildChapterPrompt(
     `Now write chapter ${index + 1}, "${here.title ?? ''}", and only that chapter.`,
     'Do not retell the other chapters, and do not repeat the chapter title in the text.',
   ].filter(Boolean).join(' ')
+
+  if (silent && (kind === 'graphic' || kind === 'picture')) {
+    const perPage = kind === 'picture' ? 'one panel' : '3 or 4 panels'
+    return [
+      story,
+      `Lay it out as ${shape.pages} pages of ${perPage} each.`,
+      'Do not write any dialogue, captions or sound effects: the pictures are drawn',
+      'first and the words are written onto them afterwards.',
+      'For every panel write two things.',
+      '"art": one sentence describing what the picture shows, as a drawing brief,',
+      'with no words or lettering anywhere in the picture.',
+      cast.length > 0
+        ? 'Every panel is drawn separately by someone who has not read the book and'
+          + ' does not know these characters, so inside "art" refer to each character'
+          + ' only by their description from the cast — never by name, and never by'
+          + ' naming what they are from. Repeat the description every time.'
+        : 'Inside "art" describe who is in the panel and what they look like every'
+          + ' time, since each panel is drawn separately by someone who has not seen'
+          + ' the others.',
+      '"beat": one short line saying what this panel is for in the story — what',
+      'happens in it, and who says something and roughly about what. Use the',
+      'characters\' real names here. This is the note the words will be written from,',
+      'so it must carry the story forward panel by panel.',
+      'Reply with JSON only, in exactly this shape:',
+      '{"pages":[{"title":"","panels":[{"art":"","beat":""}]}]}',
+    ].join(' ')
+  }
 
   if (kind === 'picture') {
     return [
@@ -1199,7 +1235,7 @@ export default async function handler(req: Req, res: Res): Promise<void> {
   let payload: {
     stage?: unknown; idea?: unknown; kind?: unknown; length?: unknown
     audience?: unknown; outline?: unknown; index?: unknown; show?: unknown
-    retell?: unknown; sofar?: unknown; title?: unknown; want?: unknown
+    retell?: unknown; sofar?: unknown; title?: unknown; want?: unknown; silent?: unknown
   }
   try {
     payload = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body ?? {}) as never
@@ -1241,7 +1277,10 @@ export default async function handler(req: Req, res: Res): Promise<void> {
         fail(res, 400, { code: 'unreadable', message: 'The plan for this book is missing.' })
         return
       }
-      prompt = buildChapterPrompt(idea, kind, length, audience, outline, index, show, retell, want)
+      prompt = buildChapterPrompt(
+        idea, kind, length, audience, outline, index, show, retell, want,
+        payload.silent === true,
+      )
     }
   } catch {
     fail(res, 400, { code: 'empty_idea', message: 'Say what the story is about, or name a show or film.' })

@@ -69,6 +69,11 @@ export interface WritingPlan {
    * without this, carrying one on would write comic pages into it.
    */
   form?: 'prose' | 'graphic' | 'picture'
+  /**
+   * The pictures were asked for before the words. Kept so carrying the book on
+   * writes the rest of it the same way round.
+   */
+  silent?: boolean
   /** The chapters the book is being written from, in order. */
   chapters: { title: string; summary: string }[]
   /** Who is in it, so a picture drawn in chapter twenty matches chapter one. */
@@ -137,6 +142,12 @@ export interface Panel {
    * before there was anywhere to write it down.
    */
   note?: string
+  /**
+   * What this panel is for in the story, in one line — who is in it and what
+   * they say something about. Written with the plan when the pictures are made
+   * before the words, and used to write the words once the picture exists.
+   */
+  beat?: string
   /** Framing of the artwork: 1 = fit the frame, higher crops in. */
   zoom: number
   /** Pan within the frame, -1 to 1, 0 being centred. */

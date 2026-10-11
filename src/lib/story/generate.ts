@@ -42,6 +42,8 @@ interface Ask {
   index?: number
   /** The exact shape asked for, when it was given as a number of pages. */
   want?: { chapters: number; pages: number }
+  /** Write the pictures only; the words are written onto them afterwards. */
+  silent?: boolean
 }
 
 async function ask(body: Ask, signal?: AbortSignal): Promise<Record<string, unknown>> {
@@ -117,6 +119,11 @@ export async function writeStory(
   retell = false,
   /** An exact number of pages, instead of one of the three named lengths. */
   pages?: number,
+  /**
+   * Draw first, write after: the chapters come back as pictures and notes with
+   * no words in them, so the lettering can be written onto real artwork.
+   */
+  silent = false,
 ): Promise<{ bookId: string; chapters: number }> {
   if (!idea.trim() && !show.trim()) {
     throw new StoryFailed('empty_idea', 'Say what the story should be about, or name a show or film.')
@@ -128,14 +135,15 @@ export async function writeStory(
   const wanted = chaptersIn(kind, length, pages)
   const book = startBook(outline, kind)
   book.writing = {
-    idea, show, retell, audience, length, wanted, pages, form: kind,
+    idea, show, retell, audience, length, wanted, pages, form: kind, silent,
     chapters: outline.chapters,
     cast: outline.cast,
   }
   const bookId = await hooks.onStart(book)
 
   const written = await writeChapters(
-    { idea, kind, length, audience, show, retell, outline, want }, bookId, 0, hooks, signal)
+    { idea, kind, length, audience, show, retell, outline, want, silent },
+    bookId, 0, hooks, signal)
   const total = outline.chapters.length
   // A plan shorter than the book asked for makes a shorter book, and saying
   // nothing about it leaves someone counting pages and wondering.
@@ -163,6 +171,8 @@ interface Brief {
   outline: Outline
   /** The exact shape asked for, when it was not one of the named lengths. */
   want?: { chapters: number; pages: number }
+  /** Ask for the pictures without any words in them. */
+  silent?: boolean
 }
 
 /**
@@ -174,7 +184,7 @@ interface Brief {
 async function writeChapters(
   brief: Brief, bookId: string, from: number, hooks: StoryHooks, signal?: AbortSignal,
 ): Promise<number> {
-  const { idea, kind, length, audience, show, retell, outline, want } = brief
+  const { idea, kind, length, audience, show, retell, outline, want, silent } = brief
   const total = outline.chapters.length
   let written = 0
 
@@ -187,7 +197,8 @@ async function writeChapters(
     try {
       reply = await askWithRetries(
         {
-          stage: 'chapter', idea, kind, length, audience, show, retell, outline, index: i, want,
+          stage: 'chapter', idea, kind, length, audience, show, retell, outline, index: i,
+          want, silent,
         }, signal)
     } catch (err) {
       if (written === 0 || signal?.aborted) throw err
@@ -268,7 +279,7 @@ export async function continueStory(
   const extended = await extendPlan(
     {
       idea, kind, length, audience, show: plan?.show ?? '', retell: plan?.retell ?? false,
-      outline, want,
+      outline, want, silent: plan?.silent,
     },
     wanted, hooks, signal,
   )
@@ -276,7 +287,7 @@ export async function continueStory(
   const written = await writeChapters(
     {
       idea, kind, length, audience, show: plan?.show ?? '', retell: plan?.retell ?? false,
-      outline: extended, want,
+      outline: extended, want, silent: plan?.silent,
     },
     book.id, done, hooks, signal,
   )
