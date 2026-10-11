@@ -6,6 +6,7 @@ import { printSheets } from '@/lib/printing'
 import { bookAuthor, bookTitle, chapterNumbers } from '@/lib/book'
 import { assetIdsOf, renderPage, type TrimId } from '@/lib/graphic/render'
 import { loadImages } from '@/lib/graphic/assets'
+import { pageCountOf, renderWrap, spineInches } from '@/lib/export/wrap'
 import type { Book } from '@/types'
 
 /** Rendered from the parsed blocks, the same model the exporters print from. */
@@ -54,6 +55,8 @@ function BlockView({ block }: { block: Block }) {
  */
 export function PrintView({ book, trim, onClose }: { book: Book; trim: TrimId; onClose: () => void }) {
   const [comicPages, setComicPages] = useState<string[] | null>(null)
+  // The jacket: back cover, spine and front on one wide sheet.
+  const [wrap, setWrap] = useState<string | null>(null)
   const [drawn, setDrawn] = useState(0)
   const [failed, setFailed] = useState<string | null>(null)
   const printed = useRef(false)
@@ -84,6 +87,29 @@ export function PrintView({ book, trim, onClose }: { book: Book; trim: TrimId; o
       } catch {
         if (live) setFailed('The pages could not be prepared for printing. The PDF export still works.')
       }
+    })()
+    return () => { live = false }
+  }, [book, trim])
+
+  // The cover is one wide sheet rather than a page, so it is drawn on its own.
+  // It is never a reason not to print: a book whose jacket will not draw still
+  // prints its pages.
+  useEffect(() => {
+    let live = true
+    void (async () => {
+      try {
+        const canvas = await renderWrap({
+          book,
+          trim,
+          pageCount: pageCountOf(book),
+          stock: 'standard',
+          dpi: 150,
+          // Printed at home rather than sent to a press: no bleed to trim off
+          // and no crop marks, so what comes out is the jacket itself.
+          printReady: false,
+        })
+        if (live) setWrap(canvas.toDataURL('image/jpeg', 0.92))
+      } catch { /* the pages still print */ }
     })()
     return () => { live = false }
   }, [book, trim])
@@ -131,12 +157,24 @@ export function PrintView({ book, trim, onClose }: { book: Book; trim: TrimId; o
               Choose paper size and which pages you want in the printer dialog. To keep a file
               instead, pick “Save as PDF” there — or use Export for a typeset one.
             </p>
+            <p className="mt-1 text-xs text-ink-faint">
+              The first sheet is the cover: back, spine and front side by side, with a{' '}
+              {spineInches(pageCountOf(book)).toFixed(3)} in spine for {pageCountOf(book)} pages.
+              It is wider than it is tall, so set that sheet to landscape, or print it on its own
+              from Export → Printable cover.
+            </p>
           </div>
         )}
       </Modal>
 
       {createPortal(
         <div className="print-root">
+          {wrap && (
+            <section className="print-sheet print-wrap" style={{ textAlign: 'center' }}>
+              <img src={wrap} alt="The cover, spine and back cover" />
+            </section>
+          )}
+
           <section className="print-sheet" style={{ textAlign: 'center', paddingTop: '28%' }}>
             <h1 style={{ fontSize: '2.2rem', fontWeight: 600, margin: 0 }}>{bookTitle(book)}</h1>
             {book.subtitle.trim() && (

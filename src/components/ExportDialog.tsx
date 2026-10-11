@@ -5,6 +5,9 @@ import { Modal } from '@/components/ui'
 import { exportBook, FORMAT_LABELS, GRAPHIC_FORMATS, PROSE_FORMATS, type ExportFormat } from '@/lib/export'
 import { DEFAULT_PDF_OPTIONS, TRIM_LABELS, type PdfOptions, type TrimSize } from '@/lib/export/pdf-options'
 import { DEFAULT_COMIC_OPTIONS, DPI_CHOICES, type ComicOptions } from '@/lib/export/comic-options'
+import {
+  LETTERED_SPINE_IN, PAPER_STOCKS, pageCountOf, spineInches, type PaperStock,
+} from '@/lib/export/wrap'
 import { TRIMS, type TrimId } from '@/lib/graphic/render'
 import { bookStats, formatCount } from '@/lib/stats'
 import type { Book } from '@/types'
@@ -91,6 +94,30 @@ export function ExportDialog({ book, trim = 'comic', onClose }: { book: Book; tr
           </div>
         </div>
 
+        {(format === 'cover' || (graphic && format === 'pdf' && comic.coverWrap)) && (
+          <div className="space-y-2 rounded-lg border border-rule bg-paper-sunk/60 p-3">
+            <label className="block">
+              <span className="label">What the pages are printed on</span>
+              <select
+                className="field"
+                value={comic.stock}
+                onChange={(e) => setComic({ ...comic, stock: e.target.value as PaperStock })}
+              >
+                {PAPER_STOCKS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+              </select>
+            </label>
+            <p className="text-xs text-ink-faint">
+              {pageCountOf(book)} pages on this paper makes a spine{' '}
+              <strong>{spineInches(pageCountOf(book), comic.stock).toFixed(3)} in</strong> wide, so
+              the whole sheet is{' '}
+              {(spineInches(pageCountOf(book), comic.stock) + TRIMS.find((t) => t.id === comic.trim)!.width * 2).toFixed(2)}
+              {' '}in across. The folds are marked outside the trim.
+              {spineInches(pageCountOf(book), comic.stock) < LETTERED_SPINE_IN
+                && ' At this thickness the book is stapled rather than bound, so the spine is left blank.'}
+            </p>
+          </div>
+        )}
+
         {graphic && (format === 'pdf' || format === 'cbz') && (
           <div className="space-y-3 rounded-lg border border-rule bg-paper-sunk/60 p-3">
             <label className="block">
@@ -121,7 +148,12 @@ export function ExportDialog({ book, trim = 'comic', onClose }: { book: Book; tr
             {([
               ['includeTitlePage', 'Title page'],
               ['borders', 'Panel borders'],
-              ...(format === 'pdf' ? [['printReady', 'Print-ready (bleed and crop marks)'] as const] : []),
+              ...(format === 'pdf'
+                ? [
+                  ['printReady', 'Print-ready (bleed and crop marks)'] as const,
+                  ['coverWrap', 'Printable cover too (back, spine, front)'] as const,
+                ]
+                : []),
             ] as const).map(([key, label]) => (
               <label key={key} className="flex items-center gap-2 text-sm text-ink-soft">
                 <input

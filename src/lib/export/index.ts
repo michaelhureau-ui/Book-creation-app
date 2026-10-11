@@ -6,7 +6,8 @@ import { exportAssets, importAssets } from '@/lib/graphic/assets'
 import type { Balloon, BalloonKind, Page, PageLayoutId, Panel } from '@/types'
 import { panelCount } from '@/lib/graphic/layouts'
 
-export type ExportFormat = 'pdf' | 'docx' | 'epub' | 'md' | 'json' | 'cbz' | 'script'
+export type ExportFormat =
+  'pdf' | 'docx' | 'epub' | 'md' | 'json' | 'cbz' | 'script' | 'cover'
 
 export const FORMAT_LABELS: Record<ExportFormat, { name: string; hint: string }> = {
   pdf: { name: 'PDF', hint: 'Typeset for print — title page, contents, running heads.' },
@@ -16,11 +17,15 @@ export const FORMAT_LABELS: Record<ExportFormat, { name: string; hint: string }>
   json: { name: 'Backup', hint: 'The full project file — re-importable into Bookwright.' },
   cbz: { name: 'CBZ', hint: 'Comic archive of page images, for any comic reader.' },
   script: { name: 'Script', hint: 'The lettering as a plain-text shooting script.' },
+  cover: {
+    name: 'Printable cover',
+    hint: 'Back cover, spine and front on one flat sheet, with the folds marked.',
+  },
 }
 
 /** Which formats make sense for each kind of book. */
-export const PROSE_FORMATS: ExportFormat[] = ['pdf', 'docx', 'epub', 'md', 'json']
-export const GRAPHIC_FORMATS: ExportFormat[] = ['pdf', 'cbz', 'script', 'json']
+export const PROSE_FORMATS: ExportFormat[] = ['pdf', 'cover', 'docx', 'epub', 'md', 'json']
+export const GRAPHIC_FORMATS: ExportFormat[] = ['pdf', 'cover', 'cbz', 'script', 'json']
 
 export function downloadBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob)
@@ -192,6 +197,11 @@ export async function exportBook(
       }
       const { buildPdf } = await import('@/lib/export/pdf')
       downloadBlob(buildPdf(book, options?.pdf, await coverArtFor(book)), `${base}.pdf`)
+      return
+    }
+    case 'cover': {
+      const { buildCoverWrapPdf } = await import('@/lib/export/comic')
+      downloadBlob(await buildCoverWrapPdf(book, options?.comic), `${base}-cover.pdf`)
       return
     }
     case 'cbz': {

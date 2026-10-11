@@ -1,4 +1,5 @@
 import type { TrimId } from '@/lib/graphic/render'
+import type { PaperStock } from '@/lib/export/wrap'
 
 /** Kept free of jsPDF/JSZip imports so the export dialog can read them cheaply. */
 export interface ComicOptions {
@@ -13,6 +14,13 @@ export interface ComicOptions {
    * tablet does not, and it would only show as a border there.
    */
   printReady: boolean
+  /**
+   * Print the jacket as well: one flat sheet with the back cover, the spine and
+   * the front cover on it, the spine as wide as the paper inside makes it.
+   */
+  coverWrap: boolean
+  /** What the inside pages are printed on, which is what sets the spine width. */
+  stock: PaperStock
 }
 
 export const DEFAULT_COMIC_OPTIONS: ComicOptions = {
@@ -21,6 +29,8 @@ export const DEFAULT_COMIC_OPTIONS: ComicOptions = {
   includeTitlePage: true,
   borders: true,
   printReady: false,
+  coverWrap: false,
+  stock: 'standard',
 }
 
 export const DPI_CHOICES = [

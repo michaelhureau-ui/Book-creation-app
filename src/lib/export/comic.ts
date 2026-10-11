@@ -11,6 +11,7 @@ import {
 } from '@/lib/graphic/render'
 import { BALLOON_LABELS } from '@/lib/graphic/pages'
 import { DEFAULT_COMIC_OPTIONS, type ComicOptions } from '@/lib/export/comic-options'
+import { pageCountOf, renderWrap, wrapBox, type WrapBox } from '@/lib/export/wrap'
 
 export { DEFAULT_COMIC_OPTIONS }
 export type { ComicOptions }
@@ -188,6 +189,48 @@ function drawCropMarks(doc: jsPDF, pad: number, trimW: number, trimH: number): v
 }
 
 /**
+ * The two lines a cover is folded on, marked in the margin where they will be
+ * cut away. A printer needs to know where the spine starts and stops; marking
+ * it across the artwork would print the mark on the finished book.
+ */
+function drawFoldMarks(doc: jsPDF, box: WrapBox): void {
+  if (box.spineWidth <= 0 || box.pad <= 0) return
+  const length = MARKS_IN * 72 * 0.8
+  const gap = BLEED_IN * 72
+  doc.setDrawColor(0)
+  doc.setLineWidth(0.4)
+  for (const x of [box.spineX, box.spineX + box.spineWidth]) {
+    doc.line(x, box.pad - gap, x, box.pad - gap - length)
+    doc.line(x, box.pad + box.trimHeight + gap, x, box.pad + box.trimHeight + gap + length)
+  }
+}
+
+/** The jacket as one sheet: back cover, spine, front cover. */
+async function addWrapPage(
+  doc: jsPDF, book: Book, opts: ComicOptions, first: boolean,
+): Promise<void> {
+  const pages = pageCountOf(book)
+  const box = wrapBox(opts.trim, pages, opts.stock, opts.printReady)
+  const canvas = await renderWrap({
+    book,
+    trim: opts.trim,
+    pageCount: pages,
+    stock: opts.stock,
+    dpi: opts.dpi,
+    printReady: opts.printReady,
+  })
+  if (!first) doc.addPage([box.width, box.height])
+  doc.addImage(
+    canvas.toDataURL('image/jpeg', 0.92), 'JPEG',
+    box.artX, box.artY, box.artWidth, box.artHeight, undefined, 'FAST',
+  )
+  if (opts.printReady) {
+    drawCropMarks(doc, box.pad, box.trimWidth, box.trimHeight)
+    drawFoldMarks(doc, box)
+  }
+}
+
+/**
  * A comic page is artwork, so the PDF embeds each rendered page as an image
  * rather than trying to describe panels and lettering as vectors.
  */
@@ -197,10 +240,20 @@ export async function buildComicPdf(book: Book, partial: Partial<ComicOptions> =
   if (canvases.length === 0) throw new Error('This graphic novel has no pages yet.')
 
   const box = comicPageBox(opts.trim, opts.printReady)
-  const doc = new jsPDF({ unit: 'pt', format: [box.width, box.height], compress: true })
+  // The jacket is a different size from the pages, so when it is wanted it is
+  // the first page and sets the document's size; jsPDF takes a size per page.
+  const wrap = opts.coverWrap
+    ? wrapBox(opts.trim, pageCountOf(book), opts.stock, opts.printReady)
+    : null
+  const doc = new jsPDF({
+    unit: 'pt',
+    format: wrap ? [wrap.width, wrap.height] : [box.width, box.height],
+    compress: true,
+  })
+  if (opts.coverWrap) await addWrapPage(doc, book, opts, true)
 
   canvases.forEach((canvas, i) => {
-    if (i > 0) doc.addPage([box.width, box.height])
+    if (i > 0 || opts.coverWrap) doc.addPage([box.width, box.height])
     doc.addImage(
       canvas.toDataURL('image/jpeg', 0.9), 'JPEG',
       box.artX, box.artY, box.artWidth, box.artHeight, undefined, 'FAST',
@@ -209,6 +262,18 @@ export async function buildComicPdf(book: Book, partial: Partial<ComicOptions> =
   })
 
   doc.setProperties({ title: bookTitle(book), author: bookAuthor(book) })
+  return doc.output('blob')
+}
+
+/** Just the jacket, for sending to a printer on its own. */
+export async function buildCoverWrapPdf(
+  book: Book, partial: Partial<ComicOptions> = {},
+): Promise<Blob> {
+  const opts = { ...DEFAULT_COMIC_OPTIONS, printReady: true, ...partial }
+  const box = wrapBox(opts.trim, pageCountOf(book), opts.stock, opts.printReady)
+  const doc = new jsPDF({ unit: 'pt', format: [box.width, box.height], compress: true })
+  await addWrapPage(doc, book, opts, true)
+  doc.setProperties({ title: `${bookTitle(book)} — cover`, author: bookAuthor(book) })
   return doc.output('blob')
 }
 

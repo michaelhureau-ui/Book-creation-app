@@ -106,6 +106,11 @@
   /* A comic page is one picture; never let a printer slice it in two. */
   .print-sheet img { max-width: 100%; max-height: 100%; break-inside: avoid; }
 
+  /* The jacket is wider than it is tall — back cover, spine and front side by
+     side — so it gets a landscape sheet of its own. */
+  .print-wrap { page: cover; }
+  @page cover { size: landscape; }
+
   /* Headings orphaned at the foot of a sheet read as a mistake. */
   .print-sheet h1, .print-sheet h2, .print-sheet h3 {
     break-after: avoid;
