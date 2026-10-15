@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   LETTERED_SPINE_IN, PAPER_STOCKS, pageCountOf, spineInches, stockOf, wrapBox,
 } from '@/lib/export/wrap'
-import { BLEED_IN, MARKS_IN, trimOf } from '@/lib/graphic/render'
+import { artRect, BLEED_IN, MARKS_IN, trimOf } from '@/lib/graphic/render'
 import { createBook, createChapter, createProsePage } from '@/lib/book'
-import { createPage } from '@/lib/graphic/pages'
+import { createPage, createPanel } from '@/lib/graphic/pages'
 
 describe('how wide the spine has to be', () => {
   it('is half the page count times the thickness of a leaf', () => {
@@ -84,5 +84,26 @@ describe('how many pages the book has', () => {
     const book = createBook('Novel', '', 'prose')
     const chapter = { ...createChapter('chapter', 'One'), pages: [createProsePage(), createProsePage()] }
     expect(pageCountOf({ ...book, chapters: [chapter, chapter] })).toBe(4)
+  })
+})
+
+describe('where the artwork sits when a strip is kept clear', () => {
+  it('drops below the strip when the words are above it', () => {
+    const panel = { ...createPanel(), letterBand: 0.3 }
+    const art = artRect(panel, { x: 0, y: 0, w: 100, h: 200 })
+    expect(art.y).toBeCloseTo(60)
+    expect(art.h).toBeCloseTo(140)
+  })
+
+  it('stays at the top when the words are underneath it', () => {
+    const panel = { ...createPanel(), letterBand: 0.3, letterBandAt: 'bottom' as const }
+    const art = artRect(panel, { x: 0, y: 0, w: 100, h: 200 })
+    expect(art.y).toBe(0)
+    expect(art.h).toBeCloseTo(140)
+  })
+
+  it('fills the frame when no strip is kept at all', () => {
+    const art = artRect(createPanel(), { x: 0, y: 0, w: 100, h: 200 })
+    expect(art).toEqual({ x: 0, y: 0, w: 100, h: 200 })
   })
 })

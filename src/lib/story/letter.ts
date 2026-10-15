@@ -3,7 +3,7 @@ import { loadImages } from '@/lib/graphic/assets'
 import { layoutOf } from '@/lib/graphic/layouts'
 import { createBalloon } from '@/lib/graphic/pages'
 import { assetIdsOf, pageGeometry, sourceRect, type TrimId } from '@/lib/graphic/render'
-import { fitBalloonsAbove, type People } from '@/lib/graphic/fit'
+import { fitBalloonsAbove, type BandAt, type People } from '@/lib/graphic/fit'
 import { LOOK_SIZE, thumbnailOf } from '@/lib/graphic/see'
 
 /**
@@ -101,7 +101,9 @@ export function drawnPanels(page: Page): { panel: Panel; index: number }[] {
 
 export interface LetterHooks {
   onProgress: (progress: LetterProgress) => void
-  apply: (pageId: string, panelId: string, balloons: Balloon[], band: number) => void
+  apply: (
+    pageId: string, panelId: string, balloons: Balloon[], band: number, at: BandAt,
+  ) => void
 }
 
 export interface LetterOptions {
@@ -109,6 +111,29 @@ export interface LetterOptions {
   trim: TrimId
   /** Leave panels that already carry words alone. */
   skipLettered?: boolean
+}
+
+/**
+ * Where a book of this sort puts its words. A comic reads its balloons before
+ * the picture; a picture book has always set its line of story underneath.
+ */
+export function bandEndFor(kind: 'graphic' | 'picture'): BandAt {
+  return kind === 'picture' ? 'bottom' : 'top'
+}
+
+/**
+ * A picture book's line of story is read aloud to somebody on your knee, so it
+ * is set wide and large across the foot of the page rather than tucked into a
+ * comic's balloon.
+ */
+export const PICTURE_CAPTION_WIDTH = 0.82
+
+export function balloonWidthFor(
+  kind: 'graphic' | 'picture', balloonKind: Balloon['kind'], width: number,
+): number {
+  return kind === 'picture' && balloonKind === 'caption'
+    ? Math.max(width, PICTURE_CAPTION_WIDTH)
+    : width
 }
 
 /**
@@ -132,6 +157,7 @@ export async function letterBook(
   if (!ctx) throw new Error('This browser cannot read the artwork.')
 
   const cast = book.writing?.cast ?? []
+  const at = bandEndFor(opts.kind)
   let written = 0
   let stopped: string | undefined
 
@@ -198,19 +224,23 @@ export async function letterBook(
       if (!frame) return
       const aspect = (frame.w * geo.width) / (frame.h * geo.height)
 
-      const fresh: Balloon[] = answer.balloons.map((b) => ({
-        ...createBalloon(b.kind),
-        text: b.text,
-        ...(b.speaker ? { speaker: b.speaker } : {}),
-      }))
+      const fresh: Balloon[] = answer.balloons.map((b) => {
+        const made = createBalloon(b.kind)
+        return {
+          ...made,
+          text: b.text,
+          width: balloonWidthFor(opts.kind, b.kind, made.width),
+          ...(b.speaker ? { speaker: b.speaker } : {}),
+        }
+      })
       // Keep anything placed by hand; the new words join it.
       const kept = panel.balloons.filter((b) => b.placed)
       const people: People = new Map(
         answer.people.map((p) => [p.name.trim().toLowerCase(), { x: p.x, y: p.y }]),
       )
-      const out = fitBalloonsAbove([...kept, ...fresh], aspect, undefined, people)
+      const out = fitBalloonsAbove([...kept, ...fresh], aspect, undefined, people, at)
       written += fresh.length
-      hooks.apply(page.id, panel.id, out.balloons, out.band)
+      hooks.apply(page.id, panel.id, out.balloons, out.band, out.at)
     })
 
     // Let the page breathe, so a long book does not lock the screen solid.

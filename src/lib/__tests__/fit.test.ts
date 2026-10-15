@@ -322,3 +322,42 @@ describe('keeping off a face that was actually seen', () => {
     expect(only.tailX).toBeCloseTo(0.85, 1)
   })
 })
+
+describe('a picture book, whose words go under the picture', () => {
+  it('stacks the words in a strip at the foot of the panel', () => {
+    const lines = [say('caption', 'The rain came again that night.')]
+    const { balloons, band, at } = fitBalloonsAbove(lines, 1.6, undefined, undefined, 'bottom')
+    expect(at).toBe('bottom')
+    expect(band).toBeGreaterThan(0)
+    const caption = balloons[0]
+    // Wholly inside the strip, which is the bottom of the panel.
+    expect(caption.y - balloonHeight(caption, 1.6) / 2).toBeGreaterThanOrEqual(1 - band - 0.001)
+    expect(caption.y + balloonHeight(caption, 1.6) / 2).toBeLessThanOrEqual(1.001)
+  })
+
+  it('points a tail up into the picture rather than down out of it', () => {
+    const { balloons, band } = fitBalloonsAbove(
+      [spoken('Up here.', 'Kara')], 1.6, undefined, found({ kara: [0.4, 0.5] }), 'bottom',
+    )
+    expect(balloons[0].tailY).toBeLessThan(1 - band)
+    expect(balloons[0].tailY).toBeGreaterThan(0)
+  })
+
+  it('allows for the picture starting at the top when the strip is at the foot', () => {
+    const lines = [spoken('Up here.', 'Kara'), spoken('I see you.', 'Dev')]
+    const band = bandFor(lines, 1.6)
+    const { balloons } = fitBalloonsAbove(
+      lines, 1.6, undefined, found({ kara: [0.3, 0.1], dev: [0.8, 0.1] }), 'bottom',
+    )
+    for (const balloon of balloons) {
+      // A tenth of the way down a picture that starts at the top of the panel.
+      expect(balloon.tailY).toBeCloseTo((0.1 + 0.05) * (1 - band), 2)
+    }
+  })
+
+  it('still letters above the picture when nothing says otherwise', () => {
+    const { at, balloons, band } = fitBalloonsAbove([say('speech', 'Here.', 'left')], 1.6)
+    expect(at).toBe('top')
+    expect(balloons[0].y).toBeLessThan(band)
+  })
+})

@@ -46,8 +46,8 @@ export function LetterDialog(
         { kind: picture ? 'picture' : 'graphic', trim, skipLettered: only },
         {
           onProgress: setProgress,
-          apply: (pageId, panelId, balloons, band) =>
-            setPanelBalloons(book.id, pageId, panelId, balloons, band),
+          apply: (pageId, panelId, balloons, band, at) =>
+            setPanelBalloons(book.id, pageId, panelId, balloons, band, at),
         },
         controller.signal,
       )

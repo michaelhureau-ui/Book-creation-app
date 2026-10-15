@@ -233,10 +233,15 @@ export function fitBalloons(
 /** How the lettering should sit against the artwork. */
 export type FitMode = 'band' | 'over'
 
+/** Which end of the panel the clear strip is at. */
+export type BandAt = 'top' | 'bottom'
+
 export interface BandFit {
   balloons: Balloon[]
   /** The strip of panel to keep clear, as a fraction of its height. */
   band: number
+  /** Which end that strip is at. */
+  at: BandAt
 }
 
 /** Nothing may be hidden behind the words, so the strip stops here. */
@@ -290,10 +295,15 @@ export function bandFor(balloons: Balloon[], panelAspect = 1.4): number {
 
 export function fitBalloonsAbove(
   balloons: Balloon[], panelAspect = 1.4, map?: DetailMap, people?: People,
+  /**
+   * Where the words go. A comic reads them before the picture, so they sit
+   * above it; a picture book has always put its line of story underneath.
+   */
+  at: BandAt = 'top',
 ): BandFit {
   const free = balloons.filter((b) => !b.placed)
   const held = balloons.filter((b) => b.placed)
-  if (free.length === 0) return { balloons, band: 0 }
+  if (free.length === 0) return { balloons, band: 0, at }
 
   const inBand = forBand(balloons)
   const heights = inBand.map((b) => balloonHeight(b, panelAspect))
@@ -306,12 +316,14 @@ export function fitBalloonsAbove(
   // `map` and `people` describe the artwork as it will actually be drawn —
   // inside the part of the frame the strip leaves, re-cropped to fit it. A
   // point in that picture is further down the panel than it is down the
-  // picture, and aiming a tail without allowing for that is how it ends up
-  // short of the person it belongs to.
+  // picture when the strip is above it, and aiming a tail without allowing for
+  // that is how it ends up short of the person it belongs to.
   const intoPanel = (spot: { x: number; y: number }): { x: number; y: number } =>
-    ({ x: spot.x, y: band + spot.y * (1 - band) })
+    ({ x: spot.x, y: at === 'bottom' ? spot.y * (1 - band) : band + spot.y * (1 - band) })
 
-  let y = BAND_PAD * squeeze
+  // The strip starts at the top of the panel, or at the top of the strip when
+  // the strip is the bottom of the panel.
+  let y = (at === 'bottom' ? 1 - band : 0) + BAND_PAD * squeeze
   const lettered = inBand.map((balloon, i) => {
     const h = heights[i] * squeeze
     const speaks = balloon.kind === 'speech' || balloon.kind === 'thought' || balloon.kind === 'shout'
@@ -340,8 +352,14 @@ export function fitBalloonsAbove(
     const target = found
       ?? (map
         ? intoPanel(busiestSpot(map, side))
-        : { x: { left: 0.26, middle: 0.5, right: 0.74 }[side], y: 0.78 })
-    const tailY = Math.max(band + 0.04, Math.min(0.96, target.y))
+        : {
+          x: { left: 0.26, middle: 0.5, right: 0.74 }[side],
+          y: at === 'bottom' ? 0.55 : 0.78,
+        })
+    // Into the picture, never into the strip.
+    const tailY = at === 'bottom'
+      ? Math.max(0.04, Math.min(1 - band - 0.04, target.y))
+      : Math.max(band + 0.04, Math.min(0.96, target.y))
     return { ...balloon, side, x, y: centre, tailX: target.x, tailY, fitted: true }
   })
 
@@ -350,5 +368,6 @@ export function fitBalloonsAbove(
   return {
     balloons: balloons.map((b) => byId.get(b.id) ?? b),
     band: held.length === balloons.length ? 0 : band,
+    at,
   }
 }

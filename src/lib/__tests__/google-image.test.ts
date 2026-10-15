@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import handler, {
-  chooseGoogleModel, describeNoPicture, describeProviderFailure, extractGoogleImage,
-  GOOGLE_RATIOS, pickGoogleRatio, resetGoogleModelCache,
+  chooseGoogleModel, chooseGoogleModels, describeNoPicture, describeProviderFailure,
+  extractGoogleImage, GOOGLE_RATIOS, pickGoogleRatio, rankImageModel, resetGoogleModelCache,
 } from '../../../api/generate-image'
 
 const PNG_B64 = 'iVBORw0KGgo='
@@ -291,5 +291,130 @@ describe('the endpoint using a Google key', () => {
     await handler({ method: 'POST', body: { subject: 'a fox' } }, res)
     expect(out.code).toBe(501)
     expect((out.body as { error: { code: string } }).error.code).toBe('not_configured')
+  })
+})
+
+/**
+ * A whole page came back undrawn, every panel refused by
+ * `gemini-3.1-flash-lite-image` — on briefs the full model draws without a
+ * murmur. The lite variants are listed alongside the real ones and sort to the
+ * top on name alone, so the app kept picking the one most likely to say no.
+ */
+describe('which image model gets picked', () => {
+  const generates = (name: string) => ({
+    name: `models/${name}`, supportedGenerationMethods: ['generateContent'],
+  })
+  const predicts = (name: string) => ({
+    name: `models/${name}`, supportedGenerationMethods: ['predict'],
+  })
+
+  it('takes the full model over the lite one', () => {
+    expect(chooseGoogleModel([
+      generates('gemini-3.1-flash-lite-image'),
+      generates('gemini-3-flash-image'),
+    ])).toBe('gemini-3-flash-image')
+  })
+
+  it('still takes a lite model rather than nothing at all', () => {
+    expect(chooseGoogleModel([generates('gemini-3.1-flash-lite-image')]))
+      .toBe('gemini-3.1-flash-lite-image')
+  })
+
+  it('prefers a settled model to a preview of one', () => {
+    expect(chooseGoogleModel([
+      generates('gemini-3-flash-image-preview'),
+      generates('gemini-3-flash-image'),
+    ])).toBe('gemini-3-flash-image')
+  })
+
+  it('keeps Imagen ahead of everything', () => {
+    expect(chooseGoogleModel([
+      generates('gemini-3-flash-image'),
+      predicts('imagen-4.0-generate-001'),
+    ])).toBe('imagen-4.0-generate-001')
+  })
+
+  it('offers the others as fallbacks, best first', () => {
+    const ranked = chooseGoogleModels([
+      generates('gemini-3.1-flash-lite-image'),
+      generates('gemini-3-flash-image'),
+      predicts('imagen-4.0-generate-001'),
+    ])
+    expect(ranked).toEqual([
+      'imagen-4.0-generate-001', 'gemini-3-flash-image', 'gemini-3.1-flash-lite-image',
+    ])
+  })
+
+  it('ranks a lite model below a full one whatever its version', () => {
+    expect(rankImageModel('gemini-9-flash-lite-image')[1])
+      .toBeGreaterThan(rankImageModel('gemini-2-flash-image')[1])
+  })
+})
+
+describe('a model that refuses', () => {
+  const key = process.env.GOOGLE_API_KEY
+
+  beforeEach(() => {
+    resetGoogleModelCache()
+    process.env.GOOGLE_API_KEY = 'test-key'
+    delete process.env.GOOGLE_IMAGE_MODEL
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    if (key === undefined) delete process.env.GOOGLE_API_KEY
+    else process.env.GOOGLE_API_KEY = key
+  })
+
+  /** The list, then whatever each model answers in turn. */
+  function serving(answers: Record<string, unknown>) {
+    return vi.fn(async (url: string) => {
+      if (url.includes('/models?')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            models: [
+              { name: 'models/gemini-3-flash-image', supportedGenerationMethods: ['generateContent'] },
+              { name: 'models/gemini-3.1-flash-lite-image', supportedGenerationMethods: ['generateContent'] },
+            ],
+          }),
+        }
+      }
+      const model = /models\/([^:]+):/.exec(url)?.[1] ?? ''
+      const body = answers[model] ?? {}
+      return { ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) }
+    })
+  }
+
+  it('asks the next model when the first one will not draw it', async () => {
+    vi.stubGlobal('fetch', serving({
+      // The best model declines...
+      'gemini-3-flash-image': {
+        candidates: [{ finishReason: 'PROHIBITED_CONTENT', content: { parts: [] } }],
+      },
+      // ...and the next one draws it.
+      'gemini-3.1-flash-lite-image': {
+        candidates: [{ content: { parts: [{ inlineData: { data: PNG_B64, mimeType: 'image/png' } }] } }],
+      },
+    }))
+
+    const { res, out } = makeRes()
+    await handler({ method: 'POST', body: { subject: 'a fox on a stair', style: 'color' } }, res)
+    expect(out.code).toBe(200)
+    expect(out.body).toMatchObject({ image: PNG_B64 })
+  })
+
+  it('gives up with the refusal when every model says no', async () => {
+    const refusal = { candidates: [{ finishReason: 'PROHIBITED_CONTENT', content: { parts: [] } }] }
+    vi.stubGlobal('fetch', serving({
+      'gemini-3-flash-image': refusal,
+      'gemini-3.1-flash-lite-image': refusal,
+    }))
+
+    const { res, out } = makeRes()
+    await handler({ method: 'POST', body: { subject: 'a fox on a stair', style: 'color' } }, res)
+    expect(out.code).toBe(502)
+    expect(out.body).toMatchObject({ error: { code: 'rejected' } })
   })
 })

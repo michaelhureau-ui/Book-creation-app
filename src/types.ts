@@ -132,6 +132,12 @@ export interface Panel {
    * on top of anybody. Zero means the picture fills the frame as before.
    */
   letterBand?: number
+  /**
+   * Which end of the panel that strip is at. A comic reads its balloons before
+   * the picture, so the strip goes above; a picture book puts its line of
+   * story underneath, the way they have always been set.
+   */
+  letterBandAt?: 'top' | 'bottom'
   id: string
   /** Key into the asset store, or null while the panel is still empty. */
   assetId: string | null

@@ -122,6 +122,11 @@ describe('chooseVisionModel', () => {
     expect(chooseVisionModel([generates('gemini-3-pro-preview')])).toBe('gemini-3-pro-preview')
   })
 
+  it('refuses an omni model, whose quota is four requests a minute', () => {
+    // Lettering a book hit 429 on nearly every page because this was chosen.
+    expect(chooseVisionModel([generates('gemini-omni-flash')])).toBeNull()
+  })
+
   it('ignores a model Google says cannot be called this way', () => {
     expect(chooseVisionModel([
       { name: 'models/gemini-3-flash', supportedGenerationMethods: ['embedContent'] },

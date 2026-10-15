@@ -141,7 +141,10 @@ export function chooseVisionModel(models: GoogleModel[]): string | null {
     .filter((name) => /gemini/i.test(name))
     // An image, speech or embedding variant cannot answer a question about a
     // picture, whatever the list says it supports.
-    .filter((name) => !/image|imagen|tts|audio|embedding|live|robotics|gemma/i.test(name))
+    // `omni` is the trap: it is listed as a generateContent model, sorts near
+    // the top on name alone, and carries a quota of four requests a minute —
+    // so a book being lettered hit 429 on nearly every page.
+    .filter((name) => !/image|imagen|tts|audio|embedding|live|robotics|gemma|omni/i.test(name))
   if (usable.length === 0) return null
   // Flash is the right tool here: this is one small question per panel, asked
   // a hundred times for a book, so cheap and quick beats clever.

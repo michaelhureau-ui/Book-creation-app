@@ -189,8 +189,8 @@ export function StoryDialog({ onClose }: { onClose: () => void }) {
                 { kind: kind === 'picture' ? 'picture' : 'graphic', trim: 'comic' },
                 {
                   onProgress: (p) => setProgress({ done: p.page, total: p.pages, label: p.label }),
-                  apply: (pageId, panelId, balloons, band) =>
-                    setPanelBalloons(bookId, pageId, panelId, balloons, band),
+                  apply: (pageId, panelId, balloons, band, at) =>
+                    setPanelBalloons(bookId, pageId, panelId, balloons, band, at),
                 },
                 controller.signal,
               )

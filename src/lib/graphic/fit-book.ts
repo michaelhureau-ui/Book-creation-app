@@ -4,7 +4,7 @@ import { layoutOf } from '@/lib/graphic/layouts'
 import { artRect, assetIdsOf, pageGeometry, sourceRect, type TrimId } from '@/lib/graphic/render'
 import {
   bandFor, detailMap, emptyMap, fitBalloons, fitBalloonsAbove,
-  type DetailMap, type Faces, type FitMode, type People,
+  type BandAt, type DetailMap, type Faces, type FitMode, type People,
 } from '@/lib/graphic/fit'
 import { LOOK_SIZE, LookFailed, seePanel, thumbnailOf, type Seen } from '@/lib/graphic/see'
 
@@ -66,11 +66,15 @@ interface Read {
 export async function fitBookLettering(
   book: Book,
   trim: TrimId,
-  apply: (pageId: string, panelId: string, balloons: Balloon[], band: number) => void,
+  apply: (
+    pageId: string, panelId: string, balloons: Balloon[], band: number, at: BandAt,
+  ) => void,
   onProgress: (progress: FitProgress) => void,
   signal?: AbortSignal,
   mode: FitMode = 'band',
   look = true,
+  /** Which end of each panel the words sit at. */
+  at: BandAt = 'top',
 ): Promise<FitProgress> {
   const images = await loadImages(assetIdsOf(book.pages))
   const geo = pageGeometry({ trim, dpi: 150 })
@@ -121,7 +125,7 @@ export async function fitBookLettering(
       // the frame. Reading the whole artwork instead would describe a picture
       // the reader is never shown.
       const band = mode === 'band' ? bandFor(panel.balloons, rect.w / rect.h) : 0
-      const art = artRect({ ...panel, letterBand: band }, rect)
+      const art = artRect({ ...panel, letterBand: band, letterBandAt: at }, rect)
 
       let map = blank
       const { sx, sy, sw, sh } = sourceRect(panel, image, art)
@@ -171,7 +175,7 @@ export async function fitBookLettering(
 
       const { fitted, band } = mode === 'band'
         ? (() => {
-          const out = fitBalloonsAbove(panel.balloons, aspect, read.map, read.people)
+          const out = fitBalloonsAbove(panel.balloons, aspect, read.map, read.people, at)
           return { fitted: out.balloons, band: out.band }
         })()
         : {
@@ -182,7 +186,7 @@ export async function fitBookLettering(
       const changed = fitted.some((b, i) =>
         Math.abs(b.x - panel.balloons[i].x) > 0.001 || Math.abs(b.y - panel.balloons[i].y) > 0.001)
       if (changed) moved += fitted.length
-      apply(page.id, panel.id, fitted, band)
+      apply(page.id, panel.id, fitted, band, at)
     })
 
     // Let the page breathe, so a long book does not lock the screen solid.

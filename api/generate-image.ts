@@ -150,8 +150,27 @@ interface GoogleModel {
  * endpoint once chose an omni model that answers "This model only supports
  * Interactions API".
  */
-export function chooseGoogleModel(models: GoogleModel[]): string | null {
-  const usable = models
+/**
+ * How good a bet a model is, lowest first.
+ *
+ * The lite variants are the trap. They are listed alongside the real ones and
+ * sort to the top on name alone, and they refuse far more: a page of panels
+ * came back entirely undrawn, every one of them `PROHIBITED_CONTENT` from
+ * `gemini-3.1-flash-lite-image`, on briefs the full model draws without
+ * complaint. So a lite model is a last resort rather than a first choice.
+ */
+export function rankImageModel(name: string): [number, number, number] {
+  return [
+    // A dedicated Imagen model is a drawing model and nothing else.
+    /imagen/i.test(name) ? 0 : 1,
+    /lite/i.test(name) ? 1 : 0,
+    /preview|exp\b|experimental/i.test(name) ? 1 : 0,
+  ]
+}
+
+/** Every model worth trying, best first. */
+export function chooseGoogleModels(models: GoogleModel[]): string[] {
+  return models
     .filter((m) => {
       const methods = m.supportedGenerationMethods ?? []
       return methods.includes('predict') || methods.includes('generateContent')
@@ -161,11 +180,17 @@ export function chooseGoogleModel(models: GoogleModel[]): string | null {
     // A model that only edits or upscales cannot generate from a prompt alone,
     // and a conversational or speech variant is not an image model at all.
     .filter((name) => !/edit|upscale|segment|embedding|omni|live|tts|audio|robotics/i.test(name))
-  if (usable.length === 0) return null
-  // Prefer a dedicated Imagen model, then the newest-looking name.
-  const imagen = usable.filter((n) => /imagen/i.test(n))
-  const pool = imagen.length > 0 ? imagen : usable
-  return pool.sort().reverse()[0]
+    .sort((a, b) => {
+      const ra = rankImageModel(a)
+      const rb = rankImageModel(b)
+      for (let i = 0; i < ra.length; i++) if (ra[i] !== rb[i]) return ra[i] - rb[i]
+      // Then the newest-looking name.
+      return a < b ? 1 : a > b ? -1 : 0
+    })
+}
+
+export function chooseGoogleModel(models: GoogleModel[]): string | null {
+  return chooseGoogleModels(models)[0] ?? null
 }
 
 /** Both response shapes Google uses: Imagen `:predict` and Gemini inline data. */
@@ -231,16 +256,19 @@ const GOOGLE_BASE = 'https://generativelanguage.googleapis.com/v1beta'
 /** Used only if the model list cannot be read. */
 const GOOGLE_FALLBACK_MODEL = 'imagen-3.0-generate-002'
 /** Model choice is stable for the life of a warm lambda. */
-let cachedGoogleModel: string | null = null
+let cachedGoogleModels: string[] | null = null
 
 /** Clears the memoised model choice. Exposed so tests start from a clean slate. */
 export function resetGoogleModelCache(): void {
-  cachedGoogleModel = null
+  cachedGoogleModels = null
 }
 
-async function resolveGoogleModel(key: string, signal: AbortSignal): Promise<string> {
-  if (process.env.GOOGLE_IMAGE_MODEL) return process.env.GOOGLE_IMAGE_MODEL
-  if (cachedGoogleModel) return cachedGoogleModel
+/** How many models one drawing is allowed to try before giving up. */
+export const MODEL_TRIES = 3
+
+async function resolveGoogleModels(key: string, signal: AbortSignal): Promise<string[]> {
+  if (process.env.GOOGLE_IMAGE_MODEL) return [process.env.GOOGLE_IMAGE_MODEL]
+  if (cachedGoogleModels) return cachedGoogleModels
   try {
     const res = await fetch(`${GOOGLE_BASE}/models?pageSize=200`, {
       headers: { 'x-goog-api-key': key },
@@ -248,17 +276,24 @@ async function resolveGoogleModel(key: string, signal: AbortSignal): Promise<str
     })
     if (res.ok) {
       const body = await res.json() as { models?: GoogleModel[] }
-      const chosen = chooseGoogleModel(body.models ?? [])
-      if (chosen) { cachedGoogleModel = chosen; return chosen }
+      const chosen = chooseGoogleModels(body.models ?? [])
+      if (chosen.length > 0) { cachedGoogleModels = chosen; return chosen }
     }
   } catch { /* fall through to the default */ }
-  return GOOGLE_FALLBACK_MODEL
+  return [GOOGLE_FALLBACK_MODEL]
 }
 
-async function generateWithGoogle(
-  key: string, prompt: string, aspect: number, signal: AbortSignal,
-): Promise<{ ok: true; image: string; mime: string } | { ok: false; status: number; error: GenerateError }> {
-  const model = await resolveGoogleModel(key, signal)
+async function resolveGoogleModel(key: string, signal: AbortSignal): Promise<string> {
+  return (await resolveGoogleModels(key, signal))[0] ?? GOOGLE_FALLBACK_MODEL
+}
+
+type Drawn =
+  | { ok: true; image: string; mime: string }
+  | { ok: false; status: number; error: GenerateError }
+
+async function drawWithModel(
+  key: string, model: string, prompt: string, aspect: number, signal: AbortSignal,
+): Promise<Drawn> {
   const ratio = pickGoogleRatio(aspect)
   const imagen = /imagen/i.test(model)
 
@@ -307,6 +342,35 @@ async function generateWithGoogle(
     }
   }
   return { ok: true, image: image.data, mime: image.mime }
+}
+
+/**
+ * Draw it, and if the model refuses, ask the next model.
+ *
+ * A refusal is not a fact about the brief: the same description one model
+ * declines, another draws. Walking on costs a second and turns a panel that
+ * could never be drawn into one that can.
+ */
+async function generateWithGoogle(
+  key: string, prompt: string, aspect: number, signal: AbortSignal,
+): Promise<Drawn> {
+  const models = await resolveGoogleModels(key, signal)
+  let last: Drawn = {
+    ok: false,
+    status: 502,
+    error: { code: 'provider_error', message: 'No drawing model could be reached.' },
+  }
+
+  for (const model of models.slice(0, MODEL_TRIES)) {
+    if (signal.aborted) break
+    last = await drawWithModel(key, model, prompt, aspect, signal)
+    if (last.ok) return last
+    // A refusal, or a model that is gone, is worth asking someone else about.
+    // A bad key or an empty wallet is not: that answer will not change.
+    const code = last.error.code
+    if (code !== 'rejected' && last.status !== 404) break
+  }
+  return last
 }
 
 const PROVIDER_URL = 'https://api.openai.com/v1/images/generations'

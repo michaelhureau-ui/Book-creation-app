@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react'
 import { Modal } from '@/components/ui'
 import { useStore } from '@/lib/store'
 import { fitBookLettering, speakersIn, type FitProgress } from '@/lib/graphic/fit-book'
+import { bandEndFor } from '@/lib/story/letter'
 import type { FitMode } from '@/lib/graphic/fit'
 import type { TrimId } from '@/lib/graphic/render'
 import type { Book } from '@/types'
@@ -41,6 +42,8 @@ export function FitLetteringDialog(
   }, [book])
 
   const busy = progress !== null
+  // A picture book sets its words under the picture; a comic reads them first.
+  const picture = book.writing?.form === 'picture'
 
   const fit = async (): Promise<void> => {
     if (busy || lettered === 0) return
@@ -51,9 +54,9 @@ export function FitLetteringDialog(
     try {
       const result = await fitBookLettering(
         book, trim,
-        (pageId, panelId, balloons, band) =>
-          setPanelBalloons(book.id, pageId, panelId, balloons, band),
-        setProgress, controller.signal, mode, look,
+        (pageId, panelId, balloons, band, at) =>
+          setPanelBalloons(book.id, pageId, panelId, balloons, band, at),
+        setProgress, controller.signal, mode, look, bandEndFor(picture ? 'picture' : 'graphic'),
       )
       setDone(result)
     } catch (err) {

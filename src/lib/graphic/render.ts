@@ -199,13 +199,26 @@ function clampTo(value: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, value))
 }
 
-function baseFontSize(kind: BalloonKind, boxW: number, scale: number): number {
+/**
+ * A caption set this wide is a picture book's line of story rather than a
+ * comic's caption box, and it is set accordingly: large, unboxed, across the
+ * foot of the page. Nothing else in the app makes a caption this wide by
+ * accident, and widening one by hand is a reasonable way to ask for it.
+ */
+export const STORY_CAPTION_WIDTH = 0.7
+
+export function isStoryText(balloon: Balloon): boolean {
+  return balloon.kind === 'caption' && balloon.width >= STORY_CAPTION_WIDTH
+}
+
+function baseFontSize(kind: BalloonKind, boxW: number, scale: number, story = false): number {
   // A sound effect is display lettering, so it is sized from its own box rather
   // than capped like speech — but it sat loud enough to swallow the panel it
   // was meant to punctuate.
-  return kind === 'sfx'
-    ? Math.max(15 * scale, boxW * 0.14)
-    : Math.max(11 * scale, Math.min(boxW * 0.115, 15 * scale))
+  if (kind === 'sfx') return Math.max(15 * scale, boxW * 0.14)
+  // A picture book is read aloud across a room, not held six inches away.
+  if (story) return Math.max(15 * scale, Math.min(boxW * 0.045, 34 * scale))
+  return Math.max(11 * scale, Math.min(boxW * 0.115, 15 * scale))
 }
 
 /**
@@ -247,7 +260,7 @@ export function layoutBalloon(
 
   const wanted = Math.min(maxW, Math.max(40 * scale, balloon.width * panel.w))
   let boxW = wanted
-  let fontSize = baseFontSize(balloon.kind, wanted, scale)
+  let fontSize = baseFontSize(balloon.kind, wanted, scale, isStoryText(balloon))
   let box = measure(boxW, fontSize)
   // A word that had to be split is a fit problem too — and for a sound effect,
   // whose type is sized from its own box, shrinking is the only thing that
@@ -334,6 +347,15 @@ function drawBalloon(ctx: CanvasRenderingContext2D, balloon: Balloon, panel: Rec
       return
 
     case 'caption':
+      // A picture book's line of story is words on the page, with no box
+      // around them; a comic's caption is a box.
+      if (isStoryText(balloon)) {
+        ctx.fillStyle = INK
+        lines.forEach((line, i) => {
+          ctx.fillText(line, cx, y + padding + i * lineHeight + lineHeight / 2)
+        })
+        return
+      }
       ctx.fillStyle = '#fdf6e3'
       ctx.fillRect(x, y, w, h)
       ctx.strokeRect(x, y, w, h)
@@ -442,6 +464,10 @@ export function artRect(panel: Panel, rect: Rect): Rect {
   const band = Math.min(0.6, Math.max(0, panel.letterBand ?? 0))
   if (band <= 0) return rect
   const taken = rect.h * band
+  // Underneath for a picture book, above for a comic.
+  if (panel.letterBandAt === 'bottom') {
+    return { x: rect.x, y: rect.y, w: rect.w, h: rect.h - taken }
+  }
   return { x: rect.x, y: rect.y + taken, w: rect.w, h: rect.h - taken }
 }
 
@@ -499,6 +525,10 @@ export function drawPage(
     if (art.y > rect.y) {
       ctx.fillStyle = PAPER
       ctx.fillRect(rect.x, rect.y, rect.w, art.y - rect.y)
+    }
+    if (art.h < rect.h && art.y === rect.y) {
+      ctx.fillStyle = PAPER
+      ctx.fillRect(rect.x, art.y + art.h, rect.w, rect.h - art.h)
     }
     if (image) {
       const { sx, sy, sw, sh } = sourceRect(panel, image, art)

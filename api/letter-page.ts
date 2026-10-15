@@ -174,7 +174,10 @@ export function chooseWritingModel(models: GoogleModel[]): string | null {
     .filter((m) => (m.supportedGenerationMethods ?? []).includes('generateContent'))
     .map((m) => (m.name ?? '').replace(/^models\//, ''))
     .filter((name) => /gemini/i.test(name))
-    .filter((name) => !/image|imagen|tts|audio|embedding|live|robotics|gemma/i.test(name))
+    // `omni` is the trap: it is listed as a generateContent model, sorts near
+    // the top on name alone, and carries a quota of four requests a minute —
+    // so a book being lettered hit 429 on nearly every page.
+    .filter((name) => !/image|imagen|tts|audio|embedding|live|robotics|gemma|omni/i.test(name))
   if (usable.length === 0) return null
   // Writing wants a better model than simply locating a face does, but a page
   // at a time is still dozens of calls for a book, so flash it is.

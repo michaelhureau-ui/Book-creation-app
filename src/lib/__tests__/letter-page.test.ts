@@ -4,7 +4,9 @@ import handler, {
   resetWritingModelCache,
 } from '../../../api/letter-page'
 import { buildChapterPrompt } from '../../../api/generate-story'
-import { drawnPanels, letterPage, LetteringFailed } from '@/lib/story/letter'
+import {
+  balloonWidthFor, bandEndFor, drawnPanels, letterPage, LetteringFailed,
+} from '@/lib/story/letter'
 import { createPage, createPanel } from '@/lib/graphic/pages'
 
 function makeRes() {
@@ -131,6 +133,10 @@ describe('chooseWritingModel', () => {
       .toBe('gemini-3-flash')
   })
 
+  it('refuses an omni model, whose quota is four requests a minute', () => {
+    expect(chooseWritingModel([generates('gemini-omni-flash')])).toBeNull()
+  })
+
   it('refuses a model that cannot write', () => {
     expect(chooseWritingModel([generates('gemini-2.5-flash-image')])).toBeNull()
   })
@@ -240,5 +246,20 @@ describe('asking for a page to be lettered', () => {
     }).catch((e) => e)
     expect(err).toBeInstanceOf(LetteringFailed)
     expect((err as LetteringFailed).code).toBe('network')
+  })
+})
+
+describe('how a picture book is set', () => {
+  it('puts its words under the picture, not over it', () => {
+    expect(bandEndFor('picture')).toBe('bottom')
+    expect(bandEndFor('graphic')).toBe('top')
+  })
+
+  it('sets its line of story wide enough to read aloud from', () => {
+    expect(balloonWidthFor('picture', 'caption', 0.4)).toBeGreaterThanOrEqual(0.8)
+    // A comic's caption keeps the size it was given.
+    expect(balloonWidthFor('graphic', 'caption', 0.4)).toBe(0.4)
+    // And a spoken line in a picture book is still a balloon.
+    expect(balloonWidthFor('picture', 'speech', 0.4)).toBe(0.4)
   })
 })
